@@ -1,0 +1,86 @@
+version: '3.3'
+
+services:
+  # MySQL数据库
+  mysql:
+    image: mysql:8.0
+    container_name: sipp-manager-mysql
+    restart: unless-stopped
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-sipp123456}
+      MYSQL_DATABASE: ${DB_NAME:-sipp_manager}
+      MYSQL_USER: ${DB_USER:-sipp}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-sipp123456}
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./backend/database/schema.mysql.sql:/docker-entrypoint-initdb.d/01-schema.sql
+    networks:
+      - sipp-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-psipp123456"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    command: --default-authentication-plugin=mysql_native_password
+
+  # 后端服务
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: sipp-manager-backend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - SIPP_HOST=${SIPP_HOST:-host.docker.internal}
+      - SIPP_CONTROL_PORT=${SIPP_CONTROL_PORT:-8888}
+      - SIPP_CSV_PATH=${SIPP_CSV_PATH:-/data/sipp_stats.csv}
+      - SIPP_SCENARIO_DIR=/app/scenarios
+      - SIPP_INJECTION_DIR=/app/injections
+      - WS_CORS_ORIGIN=*
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_NAME=${DB_NAME:-sipp_manager}
+      - DB_USER=${DB_USER:-sipp}
+      - DB_PASSWORD=${DB_PASSWORD:-sipp123456}
+      - DB_POOL_SIZE=10
+    volumes:
+      - ./scenarios:/app/scenarios
+      - ./injections:/app/injections
+      - ./data:/data
+      - backend-logs:/app/logs
+    networks:
+      - sipp-network
+    depends_on:
+      - mysql
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # 前端服务（可选，用于生产环境）
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: sipp-manager-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - sipp-network
+
+volumes:
+  backend-logs:
+    driver: local
+  mysql-data:
+    driver: local
+
+networks:
+  sipp-network:
+    driver: bridge

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<scenario name="注册测试">
+  <send><![CDATA[REGISTER sip:[remote_ip]:[remote_port] SIP/2.0
+Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+From: <sip:[field0]@[remote_ip]>;tag=[pid]SIPpTag00[call_number]
+To: <sip:[field0]@[remote_ip]>
+Call-ID: [call_id]
+CSeq: 1 REGISTER
+Contact: sip:[field0]@[local_ip]:[local_port]
+Max-Forwards: 70
+Expires: 3600
+Content-Length: 0]]></send>
+  <recv response="401" optional="false" rtd="true" auth="true">
+  </recv>
+  <send><![CDATA[REGISTER sip:[remote_ip]:[remote_port] SIP/2.0
+Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+From: <sip:[field0]@[remote_ip]>;tag=[pid]SIPpTag00[call_number]
+To: <sip:[field0]@[remote_ip]>
+Call-ID: [call_id]
+CSeq: 2 REGISTER
+Contact: sip:[field0]@[local_ip]:[local_port]
+Max-Forwards: 70
+[authentication username="[field0]" password="[field1]"]
+Expires: 3600
+Content-Length: 0]]></send>
+  <recv response="200" optional="false" rtd="false">
+  </recv>
+</scenario>

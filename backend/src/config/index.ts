@@ -1,0 +1,63 @@
+import dotenv from 'dotenv';
+import path from 'path';
+
+// 加载环境变量
+dotenv.config();
+
+/**
+ * 应用配置
+ * 遵循单一职责原则：集中管理所有配置项
+ */
+export const config = {
+  // 服务器配置
+  server: {
+    port: parseInt(process.env.PORT || '3000', 10),
+    env: process.env.NODE_ENV || 'development',
+    isDevelopment: process.env.NODE_ENV === 'development',
+    isProduction: process.env.NODE_ENV === 'production',
+  },
+
+  // SIPp配置
+  sipp: {
+    host: process.env.SIPP_HOST || 'localhost',
+    controlPort: parseInt(process.env.SIPP_CONTROL_PORT || '8888', 10),
+    csvPath: process.env.SIPP_CSV_PATH || '/tmp/sipp_stats.csv',
+    scenarioDir: process.env.SIPP_SCENARIO_DIR || path.join(__dirname, '../../../scenarios'),
+    injectionDir: process.env.SIPP_INJECTION_DIR || path.join(__dirname, '../../../injections'),
+  },
+
+  // WebSocket配置
+  websocket: {
+    port: parseInt(process.env.WS_PORT || '3001', 10),
+    corsOrigin: process.env.WS_CORS_ORIGIN || 'http://localhost:5173',
+  },
+
+  // 日志配置
+  logging: {
+    level: process.env.LOG_LEVEL || 'info',
+    file: process.env.LOG_FILE || './logs/app.log',
+  },
+
+  // 数据库配置
+  database: {
+    path: process.env.DB_PATH || './data/sipp-manager.db',
+  },
+} as const;
+
+/**
+ * 验证必需的配置项
+ */
+export function validateConfig(): void {
+  const required = [
+    { key: 'SIPP_HOST', value: config.sipp.host },
+    { key: 'SIPP_CONTROL_PORT', value: config.sipp.controlPort },
+  ];
+
+  const missing = required.filter(({ value }) => !value);
+
+  if (missing.length > 0) {
+    throw new Error(
+      `Missing required configuration: ${missing.map(({ key }) => key).join(', ')}`
+    );
+  }
+}
