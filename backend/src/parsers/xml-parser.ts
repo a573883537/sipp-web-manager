@@ -80,6 +80,7 @@ export interface Scenario {
   messages: ScenarioMessage[];
   variables?: any[];
   init?: any[];
+  injection_file?: string;
 }
 
 /**

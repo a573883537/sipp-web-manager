@@ -35,6 +35,58 @@ check_node() {
     print_success "Node.js $(node --version)"
 }
 
+# 检查数据库
+check_database() {
+    print_info "Checking database..."
+    
+    # 检查MySQL是否安装
+    if ! command -v mysql &> /dev/null; then
+        print_warning "MySQL client not found, skipping database check"
+        print_warning "Please ensure MySQL server is running and database is initialized"
+        return 0
+    fi
+    
+    # 尝试连接数据库
+    DB_HOST="${DB_HOST:-localhost}"
+    DB_PORT="${DB_PORT:-3306}"
+    DB_USER="${DB_USER:-root}"
+    DB_PASSWORD="${DB_PASSWORD:-}"
+    DB_NAME="${DB_NAME:-sipp_manager}"
+    
+    if mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASSWORD" -e "SELECT 1" > /dev/null 2>&1; then
+        print_success "MySQL connection OK"
+        
+        # 检查数据库是否存在
+        if mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASSWORD" -e "USE $DB_NAME" > /dev/null 2>&1; then
+            print_success "Database '$DB_NAME' exists"
+            
+            # 检查关键表
+            TABLES=("scenarios" "injection_files" "task_history" "config_templates")
+            ALL_EXISTS=true
+            for table in "${TABLES[@]}"; do
+                if ! mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASSWORD" -D"$DB_NAME" -e "SHOW TABLES LIKE '$table'" 2>/dev/null | grep -q "$table"; then
+                    print_warning "Table '$table' not found"
+                    ALL_EXISTS=false
+                fi
+            done
+            
+            if [ "$ALL_EXISTS" = false ]; then
+                print_warning "Some database tables are missing"
+                print_warning "Run: cd backend/database && ./init-db.sh"
+            else
+                print_success "All database tables exist"
+            fi
+        else
+            print_warning "Database '$DB_NAME' not found"
+            print_warning "Run: cd backend/database && ./init-db.sh"
+        fi
+    else
+        print_warning "Cannot connect to MySQL"
+        print_warning "Please ensure MySQL is running and credentials are correct"
+        print_warning "Set environment variables: DB_HOST, DB_PORT, DB_USER, DB_PASSWORD"
+    fi
+}
+
 # 构建后端
 build_backend() {
     print_info "Building backend..."
@@ -144,6 +196,7 @@ main() {
     echo ""
 
     check_node
+    check_database
     create_dirs
     setup_env
     build_backend

@@ -16,6 +16,7 @@ export interface ScenarioRecord {
   messages: any;
   variables?: any;
   init?: any;
+  injection_file?: string;
   created_at: Date;
   updated_at: Date;
 }
@@ -39,6 +40,7 @@ export class ScenarioRepository {
         messages: typeof row.messages === 'string' ? JSON.parse(row.messages) : row.messages,
         variables: row.variables ? (typeof row.variables === 'string' ? JSON.parse(row.variables) : row.variables) : undefined,
         init: row.init ? (typeof row.init === 'string' ? JSON.parse(row.init) : row.init) : undefined,
+        injection_file: row.injection_file || undefined,
       }));
     } catch (error: any) {
       logger.error('Failed to find all scenarios', { error: error.message });
@@ -64,6 +66,7 @@ export class ScenarioRepository {
         messages: typeof row.messages === 'string' ? JSON.parse(row.messages) : row.messages,
         variables: row.variables ? (typeof row.variables === 'string' ? JSON.parse(row.variables) : row.variables) : undefined,
         init: row.init ? (typeof row.init === 'string' ? JSON.parse(row.init) : row.init) : undefined,
+        injection_file: row.injection_file || undefined,
       };
     } catch (error: any) {
       logger.error('Failed to find scenario by filename', { filename, error: error.message });
@@ -77,8 +80,8 @@ export class ScenarioRepository {
   async create(filename: string, scenario: Scenario): Promise<ScenarioRecord> {
     try {
       await execute(
-        `INSERT INTO scenarios (filename, name, description, messages, variables, init)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO scenarios (filename, name, description, messages, variables, init, injection_file)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
         [
           filename,
           scenario.name,
@@ -86,6 +89,7 @@ export class ScenarioRepository {
           JSON.stringify(scenario.messages || []),
           scenario.variables ? JSON.stringify(scenario.variables) : null,
           scenario.init ? JSON.stringify(scenario.init) : null,
+          scenario.injection_file || null,
         ]
       );
 
@@ -109,7 +113,7 @@ export class ScenarioRepository {
     try {
       await execute(
         `UPDATE scenarios
-         SET name = ?, description = ?, messages = ?, variables = ?, init = ?
+         SET name = ?, description = ?, messages = ?, variables = ?, init = ?, injection_file = ?
          WHERE filename = ?`,
         [
           scenario.name,
@@ -117,6 +121,7 @@ export class ScenarioRepository {
           JSON.stringify(scenario.messages || []),
           scenario.variables ? JSON.stringify(scenario.variables) : null,
           scenario.init ? JSON.stringify(scenario.init) : null,
+          scenario.injection_file || null,
           filename,
         ]
       );

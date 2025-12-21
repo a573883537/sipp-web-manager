@@ -225,16 +225,19 @@ const TaskHistoryPage: React.FC = () => {
           // 数据库存储大写，前端枚举小写，需要转换
           let status = (task.status?.toLowerCase() || 'failed') as TestTaskStatus;
 
-          // 如果数据库显示运行中，但实际进程不存在，则标记为失败
-          if (status === TestTaskStatus.RUNNING && !runningTaskIds.has(task.id)) {
-            status = TestTaskStatus.FAILED;
-            // 异步更新数据库
-            apiService.updateTaskHistory(task.id, {
-              status: 'FAILED',
-              end_time: Date.now(),
-              error: 'Process terminated unexpectedly',
-            }).catch(console.error);
-          }
+          // 如果数据库显示运行中，但实际进程管理器中不存在
+          // 注意：服务重启后，进程管理器内存会被清空，但 sipp 进程可能仍在系统中运行
+          // 因此这里不立即标记为 FAILED，而是信任数据库状态
+          // 后端的 recoverRunningTasks 会在启动时检查进程是否真的存活
+          // if (status === TestTaskStatus.RUNNING && !runningTaskIds.has(task.id)) {
+          //   status = TestTaskStatus.FAILED;
+          //   // 异步更新数据库
+          //   apiService.updateTaskHistory(task.id, {
+          //     status: 'FAILED',
+          //     end_time: Date.now(),
+          //     error: 'Process terminated unexpectedly',
+          //   }).catch(console.error);
+          // }
 
           return {
             id: task.id,
@@ -251,6 +254,25 @@ const TaskHistoryPage: React.FC = () => {
 
         // 完全替换 store 中的任务列表
         setTasks(dbTasks);
+
+        // 立即获取运行中任务的最新统计数据
+        const runningTasks = dbTasks.filter(t => t.status === TestTaskStatus.RUNNING);
+        if (runningTasks.length > 0) {
+          // 并行获取所有运行中任务的统计数据
+          Promise.all(
+            runningTasks.map(async (task) => {
+              try {
+                const response = await apiService.getTaskStats(task.id);
+                if (response.success && response.stats) {
+                  updateTask(task.id, { stats: response.stats });
+                }
+              } catch (error) {
+                // 忽略错误
+              }
+            })
+          );
+        }
+
         if (showMessage) {
           message.success(t('taskHistory.loadSuccess', { count: dbTasks.length }));
         }
@@ -276,18 +298,27 @@ const TaskHistoryPage: React.FC = () => {
   useEffect(() => {
     const updateStats = async () => {
       const runningTasks = tasks.filter(t => t.status === TestTaskStatus.RUNNING);
-      for (const task of runningTasks) {
-        try {
-          const response = await apiService.getTaskStats(task.id);
-          if (response.success && response.stats) {
-            updateTask(task.id, { stats: response.stats });
+      if (runningTasks.length === 0) return;
+
+      // 并行请求所有任务的统计数据
+      await Promise.all(
+        runningTasks.map(async (task) => {
+          try {
+            const response = await apiService.getTaskStats(task.id);
+            if (response.success && response.stats) {
+              updateTask(task.id, { stats: response.stats });
+            }
+          } catch (error) {
+            // 忽略错误
           }
-        } catch (error) {
-          // 忽略错误
-        }
-      }
+        })
+      );
     };
 
+    // 立即执行一次
+    updateStats();
+
+    // 然后每3秒更新一次
     const statsInterval = setInterval(updateStats, 3000);
     return () => clearInterval(statsInterval);
   }, [tasks, updateTask]);
@@ -543,32 +574,51 @@ const TaskHistoryPage: React.FC = () => {
     {
       title: t('common.actions'),
       key: 'action',
-      width: 180,
-      render: (_: any, record: TestTask) => (
-        <Space>
-          <Dropdown
-            menu={{ items: getControlMenuItems(record) }}
-            trigger={['click']}
-          >
-            <Button
-              size="small"
-              icon={<ControlOutlined />}
-              loading={commandLoading === record.id}
-            >
-              {t('taskHistory.control')}
-            </Button>
-          </Dropdown>
-          <Button
-            danger
-            size="small"
-            icon={<StopOutlined />}
-            loading={stopLoading === record.id}
-            onClick={() => handleStopTask(record)}
-          >
-            {t('taskHistory.stop')}
-          </Button>
-        </Space>
-      ),
+      width: 200,
+      render: (_: any, record: TestTask) => {
+        // 检查是否为孤儿进程（数据库显示运行中但进程管理器中不存在）
+        const isOrphanProcess = !processStatus[record.id];
+        
+        return (
+          <Space direction="vertical" size={4}>
+            {isOrphanProcess && (
+              <Tooltip title="服务重启后无法控制此进程，但它仍在运行并生成统计数据">
+                <Tag color="warning" style={{ fontSize: '11px', margin: 0 }}>
+                  无法控制
+                </Tag>
+              </Tooltip>
+            )}
+            <Space>
+              <Dropdown
+                menu={{ items: getControlMenuItems(record) }}
+                trigger={['click']}
+                disabled={isOrphanProcess}
+              >
+                <Button
+                  size="small"
+                  icon={<ControlOutlined />}
+                  loading={commandLoading === record.id}
+                  disabled={isOrphanProcess}
+                >
+                  {t('taskHistory.control')}
+                </Button>
+              </Dropdown>
+              <Tooltip title={isOrphanProcess ? "无法停止孤儿进程，请手动结束" : ""}>
+                <Button
+                  danger
+                  size="small"
+                  icon={<StopOutlined />}
+                  loading={stopLoading === record.id}
+                  onClick={() => handleStopTask(record)}
+                  disabled={isOrphanProcess}
+                >
+                  {t('taskHistory.stop')}
+                </Button>
+              </Tooltip>
+            </Space>
+          </Space>
+        );
+      },
     },
   ];
 
