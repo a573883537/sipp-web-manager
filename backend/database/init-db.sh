@@ -28,8 +28,21 @@ log_error() {
 # 获取脚本目录
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCHEMA_FILE="$SCRIPT_DIR/schema.mysql.sql"
+ENV_FILE="$SCRIPT_DIR/../.env"
 
-# 默认数据库配置
+# 自动加载 backend/.env 文件
+if [ -f "$ENV_FILE" ]; then
+    log_info "加载配置文件: $ENV_FILE"
+    # 使用 export 和 source 加载环境变量
+    set -a
+    source "$ENV_FILE"
+    set +a
+else
+    log_warn "未找到配置文件: $ENV_FILE"
+    log_warn "将使用环境变量或默认值"
+fi
+
+# 默认数据库配置（如果环境变量未设置）
 DB_HOST="${DB_HOST:-localhost}"
 DB_PORT="${DB_PORT:-3306}"
 DB_NAME="${DB_NAME:-sipp_manager}"

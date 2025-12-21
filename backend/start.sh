@@ -17,28 +17,39 @@ echo "✅ Node.js 版本: $(node -v)"
 # 进入后端目录
 cd "$(dirname "$0")"
 
+# 检查并加载 .env 文件
+ENV_FILE=".env"
+if [ -f "$ENV_FILE" ]; then
+    echo "📝 加载配置文件: $ENV_FILE"
+    set -a
+    source "$ENV_FILE"
+    set +a
+else
+    echo "⚠️  警告: 未找到 $ENV_FILE 文件，使用默认配置"
+fi
+
+# 设置开发环境变量（如果未设置）
+export NODE_ENV="${NODE_ENV:-development}"
+export PORT="${PORT:-3000}"
+export SIPP_HOST="${SIPP_HOST:-localhost}"
+export SIPP_CONTROL_PORT="${SIPP_CONTROL_PORT:-8888}"
+export SIPP_CSV_PATH="${SIPP_CSV_PATH:-../data/sipp_stats.csv}"
+export SIPP_SCENARIO_DIR="${SIPP_SCENARIO_DIR:-../scenarios}"
+export SIPP_INJECTION_DIR="${SIPP_INJECTION_DIR:-../injections}"
+export WS_CORS_ORIGIN="${WS_CORS_ORIGIN:-http://localhost:5173}"
+export DB_HOST="${DB_HOST:-localhost}"
+export DB_PORT="${DB_PORT:-3306}"
+export DB_NAME="${DB_NAME:-sipp_manager}"
+export DB_USER="${DB_USER:-root}"
+export DB_PASSWORD="${DB_PASSWORD:-}"
+export DB_POOL_SIZE="${DB_POOL_SIZE:-10}"
+export LOG_LEVEL="${LOG_LEVEL:-debug}"
+
 # 安装依赖（首次或 package.json 变更时需要）
 if [ ! -d "node_modules" ]; then
     echo "📦 首次运行，正在安装依赖..."
     npm install
 fi
-
-# 设置开发环境变量
-export NODE_ENV=development
-export PORT=3000
-export SIPP_HOST=localhost
-export SIPP_CONTROL_PORT=8888
-export SIPP_CSV_PATH=../data/sipp_stats.csv
-export SIPP_SCENARIO_DIR=../scenarios
-export SIPP_INJECTION_DIR=../injections
-export WS_CORS_ORIGIN=http://localhost:5173
-export DB_HOST=localhost
-export DB_PORT=3306
-export DB_NAME=sipp_manager
-export DB_USER=sipp
-export DB_PASSWORD=sipp123456
-export DB_POOL_SIZE=10
-export LOG_LEVEL=debug
 
 echo ""
 echo "=== 环境变量 ==="
