@@ -68,7 +68,12 @@ const Scenarios: React.FC = () => {
   const applyTemplate = (templateId: number) => {
     const template = templates.find(t => t.id === templateId);
     if (template) {
-      startTestForm.setFieldsValue(template.config);
+      // 保留当前的 scenarioFile，避免被模板配置覆盖
+      const currentScenarioFile = startTestForm.getFieldValue('scenarioFile');
+      startTestForm.setFieldsValue({
+        ...template.config,
+        scenarioFile: currentScenarioFile,
+      });
       setCurrentTemplateId(templateId);
       message.success(`${t('common.apply')}: ${template.name}`);
     }
@@ -82,7 +87,9 @@ const Scenarios: React.FC = () => {
     const template = templates.find(t => t.id === currentTemplateId);
     if (!template) return;
     try {
-      const config = startTestForm.getFieldsValue();
+      const allValues = startTestForm.getFieldsValue();
+      // 排除 scenarioFile 字段，因为模板是通用配置，不应包含特定场景文件
+      const { scenarioFile, ...config } = allValues;
       await apiService.updateConfigTemplate(currentTemplateId, { config });
       message.success(t('template.templateUpdated'));
       loadTemplates();
@@ -100,7 +107,10 @@ const Scenarios: React.FC = () => {
       return;
     }
     try {
-      const config = startTestForm.getFieldsValue();
+      const allValues = startTestForm.getFieldsValue();
+      // 排除 scenarioFile 字段，因为模板是通用配置，不应包含特定场景文件
+      const { scenarioFile, ...config } = allValues;
+      
       if (editingTemplate) {
         // 更新模板
         await apiService.updateConfigTemplate(editingTemplate.id, {
@@ -135,7 +145,12 @@ const Scenarios: React.FC = () => {
     setEditingTemplate(template);
     setTemplateName(template.name);
     setTemplateDesc(template.description || '');
-    startTestForm.setFieldsValue(template.config);
+    // 保留当前的 scenarioFile，避免被模板配置覆盖
+    const currentScenarioFile = startTestForm.getFieldValue('scenarioFile');
+    startTestForm.setFieldsValue({
+      ...template.config,
+      scenarioFile: currentScenarioFile,
+    });
     setSaveTemplateVisible(true);
   };
 
