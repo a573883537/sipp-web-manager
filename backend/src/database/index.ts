@@ -61,9 +61,9 @@ export async function initializeDatabase(): Promise<void> {
     const count = (rows as any)[0].count;
 
     if (count > 0) {
-      logger.info('Database schema已存在');
+      logger.info('Database schema exists and is ready');
     } else {
-      const errorMsg = 'Database schema不存在，请执行: cd backend/database && ./init-db.sh';
+      const errorMsg = 'Database schema does not exist. Please run: cd backend/database && ./init-db.sh';
       logger.error(errorMsg);
       throw new Error(errorMsg);
     }

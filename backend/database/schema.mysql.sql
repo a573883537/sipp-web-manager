@@ -1,100 +1,100 @@
--- SIPp Web Manager 数据库表结构
+-- SIPp Web Manager Database Schema
 -- MySQL Schema
--- 版本: 1.0
--- 最后更新: 2025-01-01
+-- Version: 1.0
+-- Last Updated: 2025-01-01
 
--- 创建数据库（如果不存在）
+-- Create database if not exists
 CREATE DATABASE IF NOT EXISTS sipp_manager CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE sipp_manager;
 
 -- ============================================
--- 场景表 (scenarios)
+-- Scenarios Table
 -- ============================================
 CREATE TABLE IF NOT EXISTS scenarios (
-    id INT AUTO_INCREMENT PRIMARY KEY COMMENT '自增主键',
-    filename VARCHAR(255) UNIQUE NOT NULL COMMENT '场景文件名（唯一标识）',
-    name VARCHAR(255) NOT NULL COMMENT '场景名称',
-    description TEXT COMMENT '场景描述',
-    messages JSON NOT NULL COMMENT '消息序列（SIP消息流程）',
-    variables JSON DEFAULT NULL COMMENT '变量定义',
-    init JSON DEFAULT NULL COMMENT '初始化脚本',
-    injection_file VARCHAR(255) DEFAULT NULL COMMENT '关联的注入文件名',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    id INT AUTO_INCREMENT PRIMARY KEY COMMENT 'Auto-increment primary key',
+    filename VARCHAR(255) UNIQUE NOT NULL COMMENT 'Scenario filename (unique identifier)',
+    name VARCHAR(255) NOT NULL COMMENT 'Scenario name',
+    description TEXT COMMENT 'Scenario description',
+    messages JSON NOT NULL COMMENT 'Message sequence (SIP message flow)',
+    variables JSON DEFAULT NULL COMMENT 'Variable definitions',
+    init JSON DEFAULT NULL COMMENT 'Initialization script',
+    injection_file VARCHAR(255) DEFAULT NULL COMMENT 'Associated injection file name',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT 'Creation time',
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Update time',
     
     INDEX idx_scenarios_filename (filename),
     INDEX idx_scenarios_name (name),
     INDEX idx_scenarios_created_at (created_at DESC),
     INDEX idx_scenarios_injection (injection_file)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='SIPp测试场景';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='SIPp test scenarios';
 
 -- ============================================
--- 注入文件表 (injection_files)
+-- Injection Files Table
 -- ============================================
 CREATE TABLE IF NOT EXISTS injection_files (
-    id INT AUTO_INCREMENT PRIMARY KEY COMMENT '自增主键',
-    filename VARCHAR(255) UNIQUE NOT NULL COMMENT 'CSV文件名（唯一标识）',
-    description TEXT COMMENT '文件描述',
-    content TEXT NOT NULL COMMENT 'CSV文件内容（完整文本）',
-    field_count INT NOT NULL COMMENT '字段数量（用于校验）',
-    row_count INT NOT NULL COMMENT '数据行数（不含标题）',
-    read_mode ENUM('SEQUENTIAL', 'RANDOM', 'USER') DEFAULT 'SEQUENTIAL' COMMENT '读取模式：顺序/随机/用户',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    id INT AUTO_INCREMENT PRIMARY KEY COMMENT 'Auto-increment primary key',
+    filename VARCHAR(255) UNIQUE NOT NULL COMMENT 'CSV filename (unique identifier)',
+    description TEXT COMMENT 'File description',
+    content TEXT NOT NULL COMMENT 'CSV file content (full text)',
+    field_count INT NOT NULL COMMENT 'Number of fields (for validation)',
+    row_count INT NOT NULL COMMENT 'Number of data rows (excluding header)',
+    read_mode ENUM('SEQUENTIAL', 'RANDOM', 'USER') DEFAULT 'SEQUENTIAL' COMMENT 'Read mode: sequential/random/user',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT 'Creation time',
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Update time',
     
     INDEX idx_injection_filename (filename),
     INDEX idx_injection_created (created_at DESC)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='SIPp注入文件（CSV格式）';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='SIPp injection files (CSV format)';
 
 -- ============================================
--- 任务历史表 (task_history)
+-- Task History Table
 -- ============================================
 CREATE TABLE IF NOT EXISTS task_history (
-    id VARCHAR(36) PRIMARY KEY COMMENT '任务ID（UUID格式）',
-    scenario_name VARCHAR(255) NOT NULL COMMENT '场景名称',
-    scenario_file VARCHAR(255) NOT NULL COMMENT '场景文件名',
-    status ENUM('RUNNING', 'COMPLETED', 'FAILED', 'STOPPED') NOT NULL COMMENT '任务状态',
-    config JSON NOT NULL COMMENT '测试配置（rate、users、limit、remoteHost等）',
-    stats JSON DEFAULT NULL COMMENT '统计数据（totalCalls、successCalls、failedCalls、successRate）',
-    pid INT DEFAULT NULL COMMENT '进程PID（用于服务重启后恢复）',
-    control_port INT DEFAULT NULL COMMENT '控制端口（用于服务重启后恢复）',
-    start_time BIGINT NOT NULL COMMENT '开始时间（毫秒时间戳）',
-    end_time BIGINT DEFAULT NULL COMMENT '结束时间（毫秒时间戳）',
-    error TEXT DEFAULT NULL COMMENT '错误信息（仅失败任务）',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    id VARCHAR(36) PRIMARY KEY COMMENT 'Task ID (UUID format)',
+    scenario_name VARCHAR(255) NOT NULL COMMENT 'Scenario name',
+    scenario_file VARCHAR(255) NOT NULL COMMENT 'Scenario filename',
+    status ENUM('RUNNING', 'COMPLETED', 'FAILED', 'STOPPED') NOT NULL COMMENT 'Task status',
+    config JSON NOT NULL COMMENT 'Test configuration (rate, users, limit, remoteHost, etc.)',
+    stats JSON DEFAULT NULL COMMENT 'Statistics data (totalCalls, successCalls, failedCalls, successRate)',
+    pid INT DEFAULT NULL COMMENT 'Process PID (for recovery after service restart)',
+    control_port INT DEFAULT NULL COMMENT 'Control port (for recovery after service restart)',
+    start_time BIGINT NOT NULL COMMENT 'Start time (milliseconds timestamp)',
+    end_time BIGINT DEFAULT NULL COMMENT 'End time (milliseconds timestamp)',
+    error TEXT DEFAULT NULL COMMENT 'Error message (failed tasks only)',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT 'Creation time',
     
     INDEX idx_task_status (status),
     INDEX idx_task_scenario (scenario_file),
     INDEX idx_task_start_time (start_time DESC),
     INDEX idx_task_created (created_at DESC)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='SIPp测试任务历史记录';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='SIPp test task history records';
 
 -- ============================================
--- 配置模板表 (config_templates)
+-- Config Templates Table
 -- ============================================
 CREATE TABLE IF NOT EXISTS config_templates (
-    id INT AUTO_INCREMENT PRIMARY KEY COMMENT '自增主键',
-    name VARCHAR(255) UNIQUE NOT NULL COMMENT '模板名称',
-    description TEXT COMMENT '模板描述',
-    config JSON NOT NULL COMMENT '配置内容（启动参数）',
-    is_default TINYINT(1) DEFAULT 0 COMMENT '是否为默认模板',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    id INT AUTO_INCREMENT PRIMARY KEY COMMENT 'Auto-increment primary key',
+    name VARCHAR(255) UNIQUE NOT NULL COMMENT 'Template name',
+    description TEXT COMMENT 'Template description',
+    config JSON NOT NULL COMMENT 'Configuration content (startup parameters)',
+    is_default TINYINT(1) DEFAULT 0 COMMENT 'Whether this is the default template',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT 'Creation time',
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Update time',
     
     INDEX idx_template_name (name),
     INDEX idx_template_default (is_default)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='启动配置模板';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Startup configuration templates';
 
 -- ============================================
--- 插入示例数据
+-- Insert Sample Data
 -- ============================================
 
--- 示例场景
+-- Sample Scenario
 INSERT IGNORE INTO scenarios (filename, name, description, messages)
 VALUES (
     'example-uac.xml',
     'Basic UAC Example',
-    '基础UAC呼叫流程示例',
+    'Basic UAC call flow example',
     JSON_ARRAY(
         JSON_OBJECT('type', 'send', 'cdata', 'INVITE sip:[service]@[remote_ip]:[remote_port] SIP/2.0\nVia: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]\nFrom: sipp <sip:sipp@[local_ip]:[local_port]>;tag=[pid]SIPpTag00[call_number]\nTo: [service] <sip:[service]@[remote_ip]:[remote_port]>\nCall-ID: [call_id]\nCSeq: 1 INVITE\nContact: sip:sipp@[local_ip]:[local_port]\nMax-Forwards: 70\nContent-Type: application/sdp\nContent-Length: [len]\n\nv=0\no=user1 53655765 2353687637 IN IP[local_ip_type] [local_ip]\ns=-\nc=IN IP[media_ip_type] [media_ip]\nt=0 0\nm=audio [media_port] RTP/AVP 0\na=rtpmap:0 PCMU/8000'),
         JSON_OBJECT('type', 'recv', 'response', '100', 'optional', true),
@@ -107,11 +107,11 @@ VALUES (
     )
 );
 
--- 示例注入文件
+-- Sample Injection File
 INSERT IGNORE INTO injection_files (filename, description, content, field_count, row_count, read_mode)
 VALUES (
     'users_4000-4010.csv',
-    '分机4000-4010认证信息示例',
+    'Extension 4000-4010 authentication info example',
     'SEQUENTIAL
 # [field0];[field1];[field2]
 4000;password4000;192.168.1.100
@@ -130,11 +130,11 @@ VALUES (
     'SEQUENTIAL'
 );
 
--- 示例配置模板
+-- Sample Config Template
 INSERT IGNORE INTO config_templates (name, description, config, is_default)
 VALUES (
-    '默认配置',
-    '标准的测试配置模板',
+    'Default Config',
+    'Standard test configuration template',
     JSON_OBJECT(
         'remoteHost', '127.0.0.1',
         'remotePort', 5060,
