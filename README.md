@@ -4,6 +4,7 @@ SIPp Web Manager 是一个基于 Web 的 SIPp 测试管理平台，提供场景�
 
 ## 📚 文档导航
 
+- **[MySQL 快速搭建指南 (docs/MYSQL_SETUP_GUIDE.md)](docs/MYSQL_SETUP_GUIDE.md)** - 数据库快速安装部署
 - **[快速开始 (QUICKSTART.md)](QUICKSTART.md)** - 5 分钟快速部署指南
 - **[部署检查清单 (DEPLOYMENT_CHECKLIST.md)](DEPLOYMENT_CHECKLIST.md)** - 完整的部署验证清单
 - **本文档** - 详细的部署和配置说明
@@ -17,6 +18,33 @@ SIPp Web Manager 是一个基于 Web 的 SIPp 测试管理平台，提供场景�
 - 操作系统: Linux / macOS
 
 ## 快速部署
+
+### 准备工作：安装数据库
+
+如果您的系统还没有安装 MySQL，可以使用我们提供的快速搭建脚本：
+
+```bash
+# 运行数据库快速搭建脚本
+./setup-mysql.sh
+
+# 脚本支持两种方式：
+# 1. Docker 容器部署（推荐）- 快速、隔离、易管理
+# 2. 本地安装 MySQL - 传统方式、性能更好
+
+# 脚本会自动：
+# - 检测操作系统
+# - 安装 Docker（如果选择容器部署且未安装）
+# - 部署 MySQL 容器或安装本地 MySQL
+# - 可选：自动初始化 SIPp Web Manager 数据库
+# - 生成配置文件供后续使用
+```
+
+**容器部署优势：**
+- ✅ 5 分钟快速部署
+- ✅ 数据持久化（使用 Docker Volume）
+- ✅ 隔离性好，不影响系统
+- ✅ 易于管理和迁移
+- ✅ 自动重启（--restart unless-stopped）
 
 ### 方式一：一键部署（推荐）
 

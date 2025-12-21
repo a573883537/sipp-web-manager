@@ -7,9 +7,15 @@
 ### 系统要求
 - [ ] Node.js >= 18.x (`node -v`)
 - [ ] npm >= 9.x (`npm -v`)
-- [ ] MySQL >= 5.7 或 MariaDB >= 10.3 (`mysql --version`)
+- [ ] MySQL >= 5.7 或 MariaDB >= 10.3 (`mysql --version`) 
+  - **如果未安装，运行**: `./setup-mysql.sh`
 - [ ] SIPp 已安装 (`which sipp`)
 - [ ] 操作系统: Linux / macOS
+
+### 数据库安装（如果需要）
+- [ ] 运行 `./setup-mysql.sh`
+- [ ] 选择部署方式（Docker 推荐）
+- [ ] 记录数据库连接信息（会保存到 mysql-docker-config.txt）
 
 ### 网络和端口
 - [ ] 端口 3000 未被占用 (`lsof -i :3000`)
