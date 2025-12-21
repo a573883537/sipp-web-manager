@@ -17,6 +17,7 @@ export class WebSocketService {
   private io: SocketIOServer;
   private csvParser: CsvParser | null = null;
   private statsInterval: NodeJS.Timeout | null = null;
+  private taskStatsInterval: NodeJS.Timeout | null = null;
 
   constructor(httpServer: HttpServer) {
     this.io = new SocketIOServer(httpServer, {
@@ -345,6 +346,85 @@ export class WebSocketService {
   }
 
   /**
+   * 启动任务统计数据推送
+   * 定期推送所有运行中任务的统计数据
+   */
+  startTaskStatsPolling(interval: number = 3000): void {
+    if (this.taskStatsInterval) {
+      logger.warn('Task stats polling already running');
+      return;
+    }
+
+    this.taskStatsInterval = setInterval(async () => {
+      try {
+        // 获取所有运行中的任务
+        const runningTasks = await taskHistoryRepository.findByStatus('RUNNING');
+        
+        if (runningTasks.length === 0) {
+          return;
+        }
+
+        // 并行获取所有任务的统计数据
+        const tasksWithStats = await Promise.all(
+          runningTasks.map(async (task) => {
+            try {
+              const csvPath = path.join(config.sipp.logDir, `${task.id}_stats.csv`);
+              const parser = new CsvParser({ filePath: csvPath, watchMode: false });
+              const stats = await parser.getLatest();
+              
+              if (stats) {
+                const successRate = stats.totalCalls > 0
+                  ? Math.round((stats.successCalls / stats.totalCalls) * 10000) / 100
+                  : 0;
+                
+                return {
+                  taskId: task.id,
+                  stats: {
+                    totalCalls: stats.totalCalls,
+                    successCalls: stats.successCalls,
+                    failedCalls: stats.failedCalls,
+                    successRate,
+                    currentCallRate: stats.callRate || 0,
+                  },
+                  timestamp: Date.now(),
+                };
+              }
+            } catch (error) {
+              // 忽略单个任务的错误
+              logger.debug(`Failed to get stats for task ${task.id}:`, error);
+            }
+            return null;
+          })
+        );
+
+        // 过滤掉失败的任务，并推送统计数据
+        const validStats = tasksWithStats.filter(s => s !== null);
+        if (validStats.length > 0) {
+          this.broadcast('tasks:stats', {
+            tasks: validStats,
+            timestamp: Date.now(),
+          });
+        }
+      } catch (error) {
+        logger.error('Error polling task stats:', error);
+      }
+    }, interval);
+
+    logger.info(`Started task stats polling with interval: ${interval}ms`);
+  }
+
+  /**
+   * 停止任务统计数据推送
+   */
+  stopTaskStatsPolling(): void {
+    if (this.taskStatsInterval) {
+      clearInterval(this.taskStatsInterval);
+      this.taskStatsInterval = null;
+      logger.info('Stopped task stats polling');
+    }
+  }
+
+  /**
    * 获取连接的客户端数量
    */
   getClientCount(): number {
@@ -357,6 +437,7 @@ export class WebSocketService {
   close(): void {
     this.stopCsvMonitoring();
     this.stopStatsPolling();
+    this.stopTaskStatsPolling();
     this.io.close();
     logger.info('WebSocket service closed');
   }

@@ -119,6 +119,11 @@ class WebSocketService {
     this.socket.on('task:stopped', (data) => {
       this.emit('task:stopped', data);
     });
+
+    // 任务统计数据更新
+    this.socket.on('tasks:stats', (data) => {
+      this.emit('tasks:stats', data);
+    });
   }
 
   /**

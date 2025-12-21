@@ -63,11 +63,13 @@ export async function initializeDatabase(): Promise<void> {
     if (count > 0) {
       logger.info('Database schema已存在');
     } else {
-      logger.warn('Database schema不存在，请手动执行schema.mysql.sql');
+      const errorMsg = 'Database schema不存在，请执行: cd backend/database && ./init-db.sh';
+      logger.error(errorMsg);
+      throw new Error(errorMsg);
     }
   } catch (error: any) {
     logger.error('Failed to check database schema', { error: error.message });
-    // 不抛出错误，允许应用继续启动
+    throw error;
   }
 }
 

@@ -39,9 +39,14 @@ export const config = {
     file: process.env.LOG_FILE || './logs/app.log',
   },
 
-  // 数据库配置
+  // 数据库配置 (MySQL)
   database: {
-    path: process.env.DB_PATH || './data/sipp-manager.db',
+    host: process.env.DB_HOST || 'localhost',
+    port: parseInt(process.env.DB_PORT || '3306', 10),
+    name: process.env.DB_NAME || 'sipp_manager',
+    user: process.env.DB_USER || 'root',
+    password: process.env.DB_PASSWORD || '',
+    poolSize: parseInt(process.env.DB_POOL_SIZE || '10', 10),
   },
 } as const;
 

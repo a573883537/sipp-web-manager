@@ -69,8 +69,17 @@ class SippWebManagerApp {
     try {
       const connected = await testConnection();
       if (!connected) {
-        logger.error('Failed to connect to database, but continuing...');
-        return; // 不抛出错误，允许应用启动
+        const errorMsg = 'Failed to connect to database';
+        logger.error(errorMsg);
+        
+        // 生产环境下数据库连接失败则退出
+        if (config.server.isProduction) {
+          logger.error('Database connection is required in production mode');
+          throw new Error(errorMsg);
+        } else {
+          logger.warn('Continuing without database in development mode');
+          return;
+        }
       }
 
       logger.info('Checking database schema...');
@@ -80,8 +89,15 @@ class SippWebManagerApp {
       // 恢复运行中任务的状态
       await this.recoverRunningTasks();
     } catch (error: any) {
-      logger.error('Database initialization error (continuing anyway):', { error: error.message });
-      // 不抛出错误，允许应用继续启动
+      logger.error('Database initialization error:', { error: error.message });
+      
+      // 生产环境下数据库错误必须停止应用
+      if (config.server.isProduction) {
+        logger.error('Cannot start application without database in production mode');
+        throw error;
+      } else {
+        logger.warn('Continuing without database in development mode');
+      }
     }
   }
 
@@ -144,8 +160,9 @@ class SippWebManagerApp {
   private createDirectories(): void {
     const dirs = [
       config.sipp.scenarioDir,
+      config.sipp.injectionDir,
+      config.sipp.logDir,
       path.dirname(config.logging.file),
-      path.dirname(config.database.path),
     ];
 
     dirs.forEach((dir) => {
@@ -246,6 +263,9 @@ class SippWebManagerApp {
       if (fs.existsSync(config.sipp.csvPath)) {
         this.wsService.startCsvMonitoring(config.sipp.csvPath);
       }
+
+      // 启动任务统计数据推送（每3秒推送一次运行中任务的统计数据）
+      this.wsService.startTaskStatsPolling(3000);
 
       // 启动定时统计查询（需要SIPp支持get stats json命令）
       // this.wsService.startStatsPolling(2000);

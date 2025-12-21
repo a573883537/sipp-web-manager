@@ -86,11 +86,13 @@ install_dependencies() {
 # 配置环境变量
 setup_env() {
     if [ ! -f "backend/.env" ]; then
-        print_info "创建后端环境配置..."
-        cp backend/.env.example backend/.env
-        print_warning "请编辑 backend/.env 文件，设置正确的SIPp配置"
+        print_warning "后端环境配置文件不存在"
+        print_warning "请创建 backend/.env 文件并配置数据库连接"
+        print_warning "参考 README.md 中的配置说明"
+        print_error "无法启动：需要配置文件"
+        exit 1
     else
-        print_info "后端环境配置已存在"
+        print_info "后端环境配置已存在 ✓"
     fi
 }
 

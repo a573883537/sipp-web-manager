@@ -41,50 +41,70 @@ check_database() {
     
     # 检查MySQL是否安装
     if ! command -v mysql &> /dev/null; then
-        print_warning "MySQL client not found, skipping database check"
-        print_warning "Please ensure MySQL server is running and database is initialized"
-        return 0
+        print_error "MySQL client not found"
+        print_error "Please install MySQL client: sudo apt-get install mysql-client"
+        exit 1
     fi
     
-    # 尝试连接数据库
+    # 从环境变量或.env文件读取数据库配置
+    if [ -f "backend/.env" ]; then
+        source <(grep -E '^(DB_HOST|DB_PORT|DB_USER|DB_PASSWORD|DB_NAME)=' backend/.env)
+    fi
+    
     DB_HOST="${DB_HOST:-localhost}"
     DB_PORT="${DB_PORT:-3306}"
     DB_USER="${DB_USER:-root}"
     DB_PASSWORD="${DB_PASSWORD:-}"
     DB_NAME="${DB_NAME:-sipp_manager}"
     
-    if mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASSWORD" -e "SELECT 1" > /dev/null 2>&1; then
-        print_success "MySQL connection OK"
-        
-        # 检查数据库是否存在
-        if mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASSWORD" -e "USE $DB_NAME" > /dev/null 2>&1; then
-            print_success "Database '$DB_NAME' exists"
-            
-            # 检查关键表
-            TABLES=("scenarios" "injection_files" "task_history" "config_templates")
-            ALL_EXISTS=true
-            for table in "${TABLES[@]}"; do
-                if ! mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASSWORD" -D"$DB_NAME" -e "SHOW TABLES LIKE '$table'" 2>/dev/null | grep -q "$table"; then
-                    print_warning "Table '$table' not found"
-                    ALL_EXISTS=false
-                fi
-            done
-            
-            if [ "$ALL_EXISTS" = false ]; then
-                print_warning "Some database tables are missing"
-                print_warning "Run: cd backend/database && ./init-db.sh"
-            else
-                print_success "All database tables exist"
-            fi
-        else
-            print_warning "Database '$DB_NAME' not found"
-            print_warning "Run: cd backend/database && ./init-db.sh"
-        fi
-    else
-        print_warning "Cannot connect to MySQL"
-        print_warning "Please ensure MySQL is running and credentials are correct"
-        print_warning "Set environment variables: DB_HOST, DB_PORT, DB_USER, DB_PASSWORD"
+    print_info "Database config: ${DB_USER}@${DB_HOST}:${DB_PORT}/${DB_NAME}"
+    
+    # 尝试连接数据库 - 强制要求成功
+    if ! mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" ${DB_PASSWORD:+-p"$DB_PASSWORD"} -e "SELECT 1" > /dev/null 2>&1; then
+        print_error "Cannot connect to MySQL server"
+        print_error "Please check:"
+        print_error "  1. MySQL service is running: sudo systemctl status mysql"
+        print_error "  2. Database credentials are correct"
+        print_error "  3. Host and port are correct"
+        print_error "  4. Set environment variables: DB_HOST, DB_PORT, DB_USER, DB_PASSWORD"
+        exit 1
     fi
+    print_success "MySQL connection OK"
+    
+    # 检查数据库是否存在 - 强制要求存在
+    if ! mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" ${DB_PASSWORD:+-p"$DB_PASSWORD"} -e "USE $DB_NAME" > /dev/null 2>&1; then
+        print_error "Database '$DB_NAME' does not exist"
+        print_error "Please initialize the database first:"
+        print_error "  cd backend/database && ./init-db.sh"
+        exit 1
+    fi
+    print_success "Database '$DB_NAME' exists"
+    
+    # 检查关键表 - 强制要求全部存在
+    TABLES=("scenarios" "injection_files" "task_history" "config_templates")
+    MISSING_TABLES=()
+    
+    for table in "${TABLES[@]}"; do
+        if ! mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" ${DB_PASSWORD:+-p"$DB_PASSWORD"} -D"$DB_NAME" -e "SHOW TABLES LIKE '$table'" 2>/dev/null | grep -q "$table"; then
+            MISSING_TABLES+=("$table")
+        fi
+    done
+    
+    if [ ${#MISSING_TABLES[@]} -gt 0 ]; then
+        print_error "Missing database tables: ${MISSING_TABLES[*]}"
+        print_error "Please initialize the database:"
+        print_error "  cd backend/database && ./init-db.sh"
+        exit 1
+    fi
+    
+    print_success "All required tables exist: ${TABLES[*]}"
+    
+    # 显示表统计信息
+    print_info "Database statistics:"
+    for table in "${TABLES[@]}"; do
+        count=$(mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" ${DB_PASSWORD:+-p"$DB_PASSWORD"} -D"$DB_NAME" -sN -e "SELECT COUNT(*) FROM $table" 2>/dev/null || echo "0")
+        echo "  $table: $count records"
+    done
 }
 
 # 构建后端
@@ -124,6 +144,14 @@ setup_env() {
 PORT=3000
 NODE_ENV=production
 
+# Database (MySQL)
+DB_HOST=localhost
+DB_PORT=3306
+DB_NAME=sipp_manager
+DB_USER=root
+DB_PASSWORD=
+DB_POOL_SIZE=10
+
 # SIPp
 SIPP_PATH=sipp
 SIPP_HOST=localhost
@@ -139,7 +167,7 @@ WS_CORS_ORIGIN=*
 LOG_LEVEL=info
 LOG_FILE=./logs/app.log
 EOF
-        print_warning "Please edit backend/.env for your environment"
+        print_warning "Please edit backend/.env for your environment (especially database credentials)"
     fi
 
     if [ ! -f "frontend/.env" ]; then
@@ -195,11 +223,22 @@ main() {
     echo "╚═══════════════════════════════════════════════════════════╝"
     echo ""
 
+    print_info "Step 1: Checking Node.js..."
     check_node
-    check_database
+    
+    print_info "Step 2: Creating directories..."
     create_dirs
+    
+    print_info "Step 3: Setting up environment..."
     setup_env
+    
+    print_info "Step 4: Checking database (REQUIRED)..."
+    check_database
+    
+    print_info "Step 5: Building backend..."
     build_backend
+    
+    print_info "Step 6: Building frontend..."
     build_frontend
 
     echo ""

@@ -20,6 +20,7 @@ import { useTranslation } from 'react-i18next';
 import { useAppStore } from '@/stores/useAppStore';
 import { TestTaskStatus, type TestTask } from '@/types';
 import { apiService } from '@/services/api';
+import { wsService } from '@/services/websocket';
 import type { ColumnsType } from 'antd/es/table';
 import type { MenuProps } from 'antd';
 
@@ -293,35 +294,29 @@ const TaskHistoryPage: React.FC = () => {
   }, []);
 
   /**
-   * 定时更新运行中任务的统计数据
+   * 监听 WebSocket 任务统计数据更新
+   * 替代原来的轮询机制，使用 WebSocket 实时推送
    */
   useEffect(() => {
-    const updateStats = async () => {
-      const runningTasks = tasks.filter(t => t.status === TestTaskStatus.RUNNING);
-      if (runningTasks.length === 0) return;
-
-      // 并行请求所有任务的统计数据
-      await Promise.all(
-        runningTasks.map(async (task) => {
-          try {
-            const response = await apiService.getTaskStats(task.id);
-            if (response.success && response.stats) {
-              updateTask(task.id, { stats: response.stats });
-            }
-          } catch (error) {
-            // 忽略错误
-          }
-        })
-      );
+    const handleTasksStats = (data: any) => {
+      if (!data || !data.tasks) return;
+      
+      // 批量更新所有任务的统计数据
+      data.tasks.forEach((taskData: any) => {
+        if (taskData && taskData.taskId && taskData.stats) {
+          updateTask(taskData.taskId, { stats: taskData.stats });
+        }
+      });
     };
 
-    // 立即执行一次
-    updateStats();
+    // 订阅 WebSocket 事件
+    wsService.on('tasks:stats', handleTasksStats);
 
-    // 然后每3秒更新一次
-    const statsInterval = setInterval(updateStats, 3000);
-    return () => clearInterval(statsInterval);
-  }, [tasks, updateTask]);
+    // 组件卸载时取消订阅
+    return () => {
+      wsService.off('tasks:stats', handleTasksStats);
+    };
+  }, [updateTask]);
 
   /**
    * 格式化持续时间

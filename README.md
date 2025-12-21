@@ -4,6 +4,7 @@
 
 - Node.js >= 18.x
 - npm >= 9.x
+- MySQL >= 5.7 或 MariaDB >= 10.3
 - SIPp (需要预先安装)
 - 操作系统: Linux / macOS
 
@@ -15,20 +16,61 @@
 # 1. 克隆或下载项目
 cd /path/to/sipp-web-manager
 
-# 2. 安装后端依赖
+# 2. 初始化数据库（MySQL）
+cd backend/database
+# 配置数据库连接（可选，默认为 root@localhost:3306）
+export DB_HOST=localhost
+export DB_PORT=3306
+export DB_USER=root
+export DB_PASSWORD=your_password
+export DB_NAME=sipp_manager
+# 执行初始化脚本
+./init-db.sh
+cd ../..
+
+# 3. 安装后端依赖
 cd backend
 npm install
 npm run build
 
-# 3. 安装前端依赖并构建
+# 4. 安装前端依赖并构建
 cd ../frontend
 npm install
 npm run build
 
-# 4. 配置环境变量
+# 5. 配置环境变量
 cd ..
-cp backend/.env.example backend/.env
-# 编辑 backend/.env 配置文件
+# 创建 backend/.env 文件并配置数据库连接
+cat > backend/.env << 'EOF'
+# Server
+PORT=3000
+NODE_ENV=production
+
+# Database (MySQL)
+DB_HOST=localhost
+DB_PORT=3306
+DB_NAME=sipp_manager
+DB_USER=root
+DB_PASSWORD=your_password_here
+DB_POOL_SIZE=10
+
+# SIPp
+SIPP_PATH=sipp
+SIPP_HOST=localhost
+SIPP_CONTROL_PORT=8888
+SIPP_SCENARIO_DIR=../scenarios
+SIPP_INJECTION_DIR=../injections
+SIPP_LOG_DIR=../logs
+
+# WebSocket
+WS_CORS_ORIGIN=*
+
+# Logging
+LOG_LEVEL=info
+LOG_FILE=./logs/app.log
+EOF
+
+# 编辑 backend/.env 配置文件，设置正确的数据库密码
 ```
 
 ### 方式二：使用启动脚本
@@ -36,12 +78,6 @@ cp backend/.env.example backend/.env
 ```bash
 # 开发模式启动
 ./start.sh
-```
-
-### 方式三：Docker 部署
-
-```bash
-docker-compose up -d
 ```
 
 ## 配置说明
@@ -52,6 +88,14 @@ docker-compose up -d
 # 服务器配置
 PORT=3000                          # 后端服务端口
 NODE_ENV=production                # 环境模式
+
+# 数据库配置 (MySQL)
+DB_HOST=localhost                  # MySQL 主机地址
+DB_PORT=3306                       # MySQL 端口
+DB_NAME=sipp_manager               # 数据库名称
+DB_USER=root                       # 数据库用户名
+DB_PASSWORD=                       # 数据库密码
+DB_POOL_SIZE=10                    # 连接池大小
 
 # SIPp 配置
 SIPP_PATH=sipp                     # SIPp 可执行文件路径
@@ -162,8 +206,7 @@ sipp-web-manager/
 ├── scenarios/            # SIPp 场景文件
 ├── injections/           # CSV 注入文件
 ├── logs/                 # 运行日志
-├── data/                 # 数据库文件
-└── docker-compose.yml    # Docker 配置
+└── data/                 # 数据库文件
 ```
 
 ## 功能特性
@@ -177,7 +220,29 @@ sipp-web-manager/
 
 ## 常见问题
 
-### 1. SIPp 未找到
+### 1. 数据库连接失败
+
+确保 MySQL 服务正在运行：
+```bash
+# Ubuntu/Debian
+sudo systemctl status mysql
+sudo systemctl start mysql
+
+# CentOS/RHEL
+sudo systemctl status mariadb
+sudo systemctl start mariadb
+```
+
+检查数据库配置并初始化：
+```bash
+cd backend/database
+export DB_HOST=localhost
+export DB_USER=root
+export DB_PASSWORD=your_password
+./init-db.sh
+```
+
+### 2. SIPp 未找到
 
 确保 SIPp 已安装并在 PATH 中：
 ```bash
@@ -186,18 +251,18 @@ which sipp
 SIPP_PATH=/usr/local/bin/sipp
 ```
 
-### 2. 端口被占用
+### 3. 端口被占用
 
 修改 backend/.env 中的 PORT 配置：
 ```bash
 PORT=3001
 ```
 
-### 3. WebSocket 连接失败
+### 4. WebSocket 连接失败
 
 检查防火墙设置，确保 WebSocket 端口可访问。
 
-### 4. 权限问题
+### 5. 权限问题
 
 确保 scenarios、injections、logs 目录有写入权限：
 ```bash
