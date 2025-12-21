@@ -152,7 +152,7 @@ export interface ScenarioMessage {
   label?: string;
   pcap_file?: string;
   // 条件跳转相关字段（SIPp label/next/ontimeout特性）
-  next?: string;        // 跳转目标的label ID（当optional=true且消息未收到时跳转）
+  next?: string;        // 跳转目标的label ID（当optional=true且消息收到时跳转）
   ontimeout?: string;   // 超时跳转目标的label ID（当消息超时时跳转）
   label_id?: string;    // 标签ID（用于定义跳转目标，配合<label id="xxx"/>使用）
   crlf?: boolean;       // 是否在消息后添加CRLF（用于某些协议兼容性）
@@ -316,6 +316,7 @@ export interface TestTask {
     injectionFile?: string;
     minRtpPort?: number;
     maxRtpPort?: number;
+    oocsf?: string;
   };
   stats?: {
     totalCalls: number;

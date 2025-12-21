@@ -50,6 +50,7 @@ interface AppState {
   addTask: (task: TestTask) => void;
   updateTask: (id: string, updates: Partial<TestTask>) => void;
   setCurrentTask: (task: TestTask | null) => void;
+  setTasks: (tasks: TestTask[]) => void;
   clearTasks: () => void;
 }
 
@@ -134,6 +135,7 @@ export const useAppStore = create<AppState>()(
               : state.currentTask,
         })),
       setCurrentTask: (task) => set({ currentTask: task }),
+      setTasks: (tasks) => set({ tasks }),
       clearTasks: () => set({ tasks: [], currentTask: null }),
     }),
     {

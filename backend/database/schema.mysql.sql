@@ -14,13 +14,11 @@ CREATE TABLE IF NOT EXISTS scenarios (
     messages JSON NOT NULL,
     variables JSON DEFAULT NULL,
     init JSON DEFAULT NULL,
-    injection_file VARCHAR(255) DEFAULT NULL COMMENT '关联的注入文件名（可选）',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_scenarios_filename (filename),
     INDEX idx_scenarios_name (name),
-    INDEX idx_scenarios_created_at (created_at DESC),
-    INDEX idx_scenarios_injection (injection_file)
+    INDEX idx_scenarios_created_at (created_at DESC)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 注入文件表
@@ -87,6 +85,8 @@ CREATE TABLE IF NOT EXISTS task_history (
     status ENUM('RUNNING', 'COMPLETED', 'FAILED', 'STOPPED') NOT NULL COMMENT '任务状态',
     config JSON NOT NULL COMMENT '测试配置（rate、users、limit、remoteHost等）',
     stats JSON DEFAULT NULL COMMENT '统计数据（totalCalls、successCalls、failedCalls、successRate）',
+    pid INT DEFAULT NULL COMMENT '进程PID（用于服务重启后恢复）',
+    control_port INT DEFAULT NULL COMMENT '控制端口（用于服务重启后恢复）',
     start_time BIGINT NOT NULL COMMENT '开始时间（毫秒时间戳）',
     end_time BIGINT DEFAULT NULL COMMENT '结束时间（毫秒时间戳）',
     error TEXT DEFAULT NULL COMMENT '错误信息（仅失败任务）',
@@ -96,3 +96,16 @@ CREATE TABLE IF NOT EXISTS task_history (
     INDEX idx_task_start_time (start_time DESC),
     INDEX idx_task_created (created_at DESC)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='SIPp测试任务历史记录';
+
+-- 配置模板表
+CREATE TABLE IF NOT EXISTS config_templates (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(255) UNIQUE NOT NULL COMMENT '模板名称',
+    description TEXT COMMENT '模板描述',
+    config JSON NOT NULL COMMENT '配置内容（启动参数）',
+    is_default TINYINT(1) DEFAULT 0 COMMENT '是否为默认模板',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_template_name (name),
+    INDEX idx_template_default (is_default)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='启动配置模板';

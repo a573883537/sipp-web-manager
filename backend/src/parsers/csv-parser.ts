@@ -123,6 +123,7 @@ export class CsvParser extends EventEmitter {
           skip_empty_lines: true,
           trim: true,
           relax_quotes: true,
+          delimiter: ';',
         })
       );
 
@@ -146,17 +147,16 @@ export class CsvParser extends EventEmitter {
    */
   private parseRow(record: any): CsvStatsRow | null {
     try {
-      // SIPp CSV的典型列：
-      // StartTime;LastResetTime;CurrentTime;ElapsedTime;CallRate;IncomingCall;OutgoingCall;TotalCallCreated;CurrentCall;SuccessfulCall;FailedCall;...
-
+      // SIPp CSV列名带有(P)和(C)后缀：Periodic和Cumulative
+      // 使用Cumulative值(C)作为统计数据
       const row: CsvStatsRow = {
         timestamp: Date.now(),
-        elapsed: this.parseNumber(record.ElapsedTime || record.elapsed),
-        callRate: this.parseNumber(record.CallRate || record.call_rate),
+        elapsed: this.parseNumber(record['ElapsedTime(C)'] || record.ElapsedTime || record.elapsed),
+        callRate: this.parseNumber(record['CallRate(C)'] || record.CallRate || record.call_rate),
         currentCalls: this.parseNumber(record.CurrentCall || record.current_calls),
         totalCalls: this.parseNumber(record.TotalCallCreated || record.total_calls),
-        successCalls: this.parseNumber(record.SuccessfulCall || record.success_calls),
-        failedCalls: this.parseNumber(record.FailedCall || record.failed_calls),
+        successCalls: this.parseNumber(record['SuccessfulCall(C)'] || record.SuccessfulCall || record.success_calls),
+        failedCalls: this.parseNumber(record['FailedCall(C)'] || record.FailedCall || record.failed_calls),
       };
 
       return row;
@@ -197,6 +197,7 @@ export class CsvParser extends EventEmitter {
           skip_empty_lines: true,
           trim: true,
           relax_quotes: true,
+          delimiter: ';',
         })
       );
 

@@ -16,7 +16,6 @@ export interface ScenarioRecord {
   messages: any;
   variables?: any;
   init?: any;
-  injection_file?: string;  // 关联的注入文件名
   created_at: Date;
   updated_at: Date;
 }
@@ -78,8 +77,8 @@ export class ScenarioRepository {
   async create(filename: string, scenario: Scenario): Promise<ScenarioRecord> {
     try {
       await execute(
-        `INSERT INTO scenarios (filename, name, description, messages, variables, init, injection_file)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO scenarios (filename, name, description, messages, variables, init)
+         VALUES (?, ?, ?, ?, ?, ?)`,
         [
           filename,
           scenario.name,
@@ -87,7 +86,6 @@ export class ScenarioRepository {
           JSON.stringify(scenario.messages || []),
           scenario.variables ? JSON.stringify(scenario.variables) : null,
           scenario.init ? JSON.stringify(scenario.init) : null,
-          (scenario as any).injection_file || null,  // 支持注入文件关联
         ]
       );
 
@@ -111,7 +109,7 @@ export class ScenarioRepository {
     try {
       await execute(
         `UPDATE scenarios
-         SET name = ?, description = ?, messages = ?, variables = ?, init = ?, injection_file = ?
+         SET name = ?, description = ?, messages = ?, variables = ?, init = ?
          WHERE filename = ?`,
         [
           scenario.name,
@@ -119,7 +117,6 @@ export class ScenarioRepository {
           JSON.stringify(scenario.messages || []),
           scenario.variables ? JSON.stringify(scenario.variables) : null,
           scenario.init ? JSON.stringify(scenario.init) : null,
-          (scenario as any).injection_file || null,  // 支持注入文件关联
           filename,
         ]
       );

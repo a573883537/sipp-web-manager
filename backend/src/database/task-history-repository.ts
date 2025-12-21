@@ -32,6 +32,8 @@ export interface TaskHistoryRecord {
     failedCalls: number;
     successRate: number;
   };
+  pid?: number;
+  control_port?: number;
   start_time: number;
   end_time?: number;
   error?: string;
@@ -53,6 +55,8 @@ export interface CreateTaskHistoryInput {
 export interface UpdateTaskHistoryInput {
   status?: 'RUNNING' | 'COMPLETED' | 'FAILED' | 'STOPPED';
   stats?: Record<string, any>;
+  pid?: number;
+  control_port?: number;
   end_time?: number;
   error?: string;
 }
@@ -164,6 +168,14 @@ export class TaskHistoryRepository {
       if (input.stats !== undefined) {
         updates.push('stats = ?');
         params.push(JSON.stringify(input.stats));
+      }
+      if (input.pid !== undefined) {
+        updates.push('pid = ?');
+        params.push(input.pid);
+      }
+      if (input.control_port !== undefined) {
+        updates.push('control_port = ?');
+        params.push(input.control_port);
       }
       if (input.end_time !== undefined) {
         updates.push('end_time = ?');

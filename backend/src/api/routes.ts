@@ -7,7 +7,9 @@ import { config } from '../config';
 import { scenarioRepository } from '../database/scenario-repository';
 import { injectionFileService } from '../services/injection-file-service';
 import { taskHistoryRepository } from '../database/task-history-repository';
+import { configTemplateRepository } from '../database/config-template-repository';
 import fs from 'fs/promises';
+import * as fsSync from 'fs';
 import path from 'path';
 
 /**
@@ -86,6 +88,19 @@ apiRouter.post('/sipp/start', async (req: Request, res: Response): Promise<void>
       maxRtpPort,
       enableRtpEcho,
       mediaIp,
+      oocsf,
+      // 日志追踪选项
+      traceMsg,
+      traceErr,
+      traceCalldebug,
+      traceShortmsg,
+      traceLogs,
+      traceRtt,
+      traceScreen,
+      // 其他高级选项
+      localIp,
+      bindLocal,
+      rsa,
     } = req.body;
 
     if (!scenarioFile) {
@@ -96,12 +111,15 @@ apiRouter.post('/sipp/start', async (req: Request, res: Response): Promise<void>
       return;
     }
 
-    // 存储任务 ID 到进程管理器（用于后续状态广播）
-    if (taskId) {
-      (sippProcessManager as any).currentTaskId = taskId;
+    if (!taskId) {
+      res.status(400).json({
+        success: false,
+        error: 'Missing required field: taskId',
+      });
+      return;
     }
 
-    await sippProcessManager.start(scenarioFile, {
+    await sippProcessManager.start(taskId, scenarioFile, {
       rate,
       users,
       limit,
@@ -115,12 +133,32 @@ apiRouter.post('/sipp/start', async (req: Request, res: Response): Promise<void>
       maxRtpPort,
       enableRtpEcho,
       mediaIp,
+      oocsf,
+      traceMsg,
+      traceErr,
+      traceCalldebug,
+      traceShortmsg,
+      traceLogs,
+      traceRtt,
+      traceScreen,
+      localIp,
+      bindLocal,
+      rsa,
     });
+
+    // 保存 pid 和 control_port 到数据库
+    const status = sippProcessManager.getStatus(taskId);
+    if (status) {
+      await taskHistoryRepository.update(taskId, {
+        pid: status.pid || undefined,
+        control_port: status.controlPort,
+      });
+    }
 
     res.json({
       success: true,
       message: 'SIPp test started successfully',
-      status: sippProcessManager.getStatus(),
+      status,
       taskId,
     });
   } catch (error: any) {
@@ -134,9 +172,17 @@ apiRouter.post('/sipp/start', async (req: Request, res: Response): Promise<void>
  */
 apiRouter.post('/sipp/stop', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { force = false } = req.body;
+    const { taskId, force = false } = req.body;
 
-    await sippProcessManager.stop(force);
+    if (!taskId) {
+      res.status(400).json({
+        success: false,
+        error: 'Missing required field: taskId',
+      });
+      return;
+    }
+
+    await sippProcessManager.stop(taskId, force);
 
     res.json({
       success: true,
@@ -149,71 +195,113 @@ apiRouter.post('/sipp/stop', async (req: Request, res: Response): Promise<void> 
 });
 
 /**
- * 重启SIPp测试
+ * 获取SIPp进程状态
  */
-apiRouter.post('/sipp/restart', async (req: Request, res: Response): Promise<void> => {
-  try {
-    const {
-      scenarioFile,
-      rate = 10,
-      users = 100,
-      limit = 0,
-      remoteHost = '127.0.0.1',
-      remotePort = 5060,
-      localPort = 5061,
-      transport = 'udp',
-      timeout = 60000,
-      injectionFile,
-      minRtpPort,
-      maxRtpPort,
-      enableRtpEcho,
-      mediaIp,
-    } = req.body;
+apiRouter.get('/sipp/process-status', (_req: Request, res: Response) => {
+  const allStatus = sippProcessManager.getAllStatus();
+  const statusArray = Array.from(allStatus.values());
+  res.json({
+    success: true,
+    status: statusArray,
+    runningCount: sippProcessManager.getRunningCount(),
+  });
+});
 
-    if (!scenarioFile) {
+/**
+ * 发送控制命令到运行中的任务
+ */
+apiRouter.post('/sipp/command', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { taskId, command, args } = req.body;
+
+    if (!taskId || !command) {
       res.status(400).json({
         success: false,
-        error: 'Missing required field: scenarioFile',
+        error: 'Missing required fields: taskId, command',
       });
       return;
     }
 
-    await sippProcessManager.restart(scenarioFile, {
-      rate,
-      users,
-      limit,
-      remoteHost,
-      remotePort,
-      localPort,
-      transport,
-      timeout,
-      injectionFile,
-      minRtpPort,
-      maxRtpPort,
-      enableRtpEcho,
-      mediaIp,
-    });
+    await sippProcessManager.sendCommand(taskId, command, args);
 
     res.json({
       success: true,
-      message: 'SIPp test restarted successfully',
-      status: sippProcessManager.getStatus(),
+      message: `Command ${command} sent successfully`,
     });
   } catch (error: any) {
-    logger.error('Failed to restart SIPp test:', error);
+    logger.error('Failed to send command:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
 /**
- * 获取SIPp进程状态
+ * 获取任务的实时统计数据
  */
-apiRouter.get('/sipp/process-status', (_req: Request, res: Response) => {
-  const status = sippProcessManager.getStatus();
-  res.json({
-    success: true,
-    status,
-  });
+apiRouter.get('/sipp/stats/:taskId', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { taskId } = req.params;
+    const csvPath = path.join(config.sipp.logDir, `${taskId}_stats.csv`);
+
+    if (!fsSync.existsSync(csvPath)) {
+      res.status(404).json({ success: false, error: 'Stats file not found' });
+      return;
+    }
+
+    const { CsvParser } = await import('../parsers/csv-parser');
+    const parser = new CsvParser({ filePath: csvPath, watchMode: false });
+    const stats = await parser.getLatest();
+
+    if (!stats) {
+      res.json({ success: true, stats: null });
+      return;
+    }
+
+    const successRate = stats.totalCalls > 0
+      ? Math.round((stats.successCalls / stats.totalCalls) * 10000) / 100
+      : 0;
+
+    res.json({
+      success: true,
+      stats: {
+        totalCalls: stats.totalCalls,
+        successCalls: stats.successCalls,
+        failedCalls: stats.failedCalls,
+        successRate,
+        currentCalls: stats.currentCalls,
+        callRate: stats.callRate,
+      },
+    });
+  } catch (error: any) {
+    logger.error('Failed to get stats:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * 获取任务的屏幕截图/日志文件
+ */
+apiRouter.get('/sipp/screen/:taskId', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { taskId } = req.params;
+    const logDir = config.sipp.logDir;
+
+    // 查找以 taskId 开头的 screen.log 文件
+    const files = fsSync.readdirSync(logDir);
+    const screenFile = files.find(f => f.includes(taskId) && f.endsWith('_screen.log'));
+
+    if (!screenFile) {
+      res.status(404).json({ success: false, error: 'Screen file not found' });
+      return;
+    }
+
+    const filePath = path.join(logDir, screenFile);
+    const content = fsSync.readFileSync(filePath, 'utf-8');
+
+    res.json({ success: true, content });
+  } catch (error: any) {
+    logger.error('Failed to get screen:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
 });
 
 /**
@@ -228,7 +316,6 @@ apiRouter.get('/scenarios', async (_req: Request, res: Response): Promise<void> 
       name: record.name,
       filename: record.filename,
       description: record.description,
-      injection_file: record.injection_file,  // 添加注入文件字段
       created_at: record.created_at,
       updated_at: record.updated_at,
     }));
@@ -259,12 +346,35 @@ apiRouter.get('/scenarios/:filename', async (req: Request, res: Response): Promi
       messages: record.messages,
       variables: record.variables,
       init: record.init,
-      injection_file: record.injection_file,  // 添加注入文件字段
     };
 
     res.json({ success: true, scenario });
   } catch (error: any) {
     logger.error('Failed to get scenario:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * 场景管理 - 获取场景的原始XML内容（格式化）
+ */
+apiRouter.get('/scenarios/:filename/xml', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { filename } = req.params;
+    const filePath = path.join(config.sipp.scenarioDir, filename);
+
+    // 检查文件是否存在
+    if (!fsSync.existsSync(filePath)) {
+      res.status(404).json({ success: false, error: 'Scenario file not found' });
+      return;
+    }
+
+    // 读取XML文件内容
+    const xmlContent = fsSync.readFileSync(filePath, 'utf-8');
+
+    res.json({ success: true, xml: xmlContent });
+  } catch (error: any) {
+    logger.error('Failed to get scenario XML:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -698,7 +808,7 @@ apiRouter.put('/task-history/:id', async (req: Request, res: Response): Promise<
 });
 
 /**
- * 删除任务历史记录
+ * 删除任务历史记录（同时删除相关日志文件）
  */
 apiRouter.delete('/task-history/:id', async (req: Request, res: Response): Promise<void> => {
   try {
@@ -713,12 +823,147 @@ apiRouter.delete('/task-history/:id', async (req: Request, res: Response): Promi
       return;
     }
 
+    // 删除相关日志文件
+    const logDir = config.sipp.logDir;
+    try {
+      const files = fsSync.readdirSync(logDir);
+      const taskFiles = files.filter(f => f.includes(id));
+      for (const file of taskFiles) {
+        const filePath = path.join(logDir, file);
+        fsSync.unlinkSync(filePath);
+        logger.info(`Deleted log file: ${file}`);
+      }
+    } catch (err) {
+      logger.warn('Failed to delete some log files', { taskId: id, error: err });
+    }
+
     res.json({
       success: true,
       message: 'Task history deleted successfully',
     });
   } catch (error: any) {
     logger.error('Failed to delete task history:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * ==================== 配置模板管理 API ====================
+ */
+
+/**
+ * 获取所有配置模板
+ */
+apiRouter.get('/config-templates', async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const templates = await configTemplateRepository.findAll();
+    res.json({ success: true, templates });
+  } catch (error: any) {
+    logger.error('Failed to get config templates:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * 获取默认配置模板
+ */
+apiRouter.get('/config-templates/default', async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const template = await configTemplateRepository.findDefault();
+    res.json({ success: true, template });
+  } catch (error: any) {
+    logger.error('Failed to get default config template:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * 获取单个配置模板
+ */
+apiRouter.get('/config-templates/:id', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const template = await configTemplateRepository.findById(parseInt(id, 10));
+    if (!template) {
+      res.status(404).json({ success: false, error: 'Template not found' });
+      return;
+    }
+    res.json({ success: true, template });
+  } catch (error: any) {
+    logger.error('Failed to get config template:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * 创建配置模板
+ */
+apiRouter.post('/config-templates', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { name, description, config: templateConfig, is_default } = req.body;
+    if (!name || !templateConfig) {
+      res.status(400).json({ success: false, error: 'Missing required fields: name, config' });
+      return;
+    }
+    const id = await configTemplateRepository.create({ name, description, config: templateConfig, is_default });
+    res.json({ success: true, id, message: 'Template created successfully' });
+  } catch (error: any) {
+    logger.error('Failed to create config template:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * 更新配置模板
+ */
+apiRouter.put('/config-templates/:id', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const { name, description, config: templateConfig, is_default } = req.body;
+    const updated = await configTemplateRepository.update(parseInt(id, 10), { name, description, config: templateConfig, is_default });
+    if (!updated) {
+      res.status(404).json({ success: false, error: 'Template not found' });
+      return;
+    }
+    res.json({ success: true, message: 'Template updated successfully' });
+  } catch (error: any) {
+    logger.error('Failed to update config template:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * 设置默认配置模板
+ */
+apiRouter.post('/config-templates/:id/set-default', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const success = await configTemplateRepository.setDefault(parseInt(id, 10));
+    if (!success) {
+      res.status(404).json({ success: false, error: 'Template not found' });
+      return;
+    }
+    res.json({ success: true, message: 'Default template set successfully' });
+  } catch (error: any) {
+    logger.error('Failed to set default config template:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * 删除配置模板
+ */
+apiRouter.delete('/config-templates/:id', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const deleted = await configTemplateRepository.delete(parseInt(id, 10));
+    if (!deleted) {
+      res.status(404).json({ success: false, error: 'Template not found' });
+      return;
+    }
+    res.json({ success: true, message: 'Template deleted successfully' });
+  } catch (error: any) {
+    logger.error('Failed to delete config template:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });

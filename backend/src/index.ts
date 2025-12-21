@@ -6,9 +6,11 @@ import { logger } from './utils/logger';
 import { sippClient } from './services/sipp-client';
 import { WebSocketService } from './websocket';
 import { testConnection, initializeDatabase } from './database';
+import { taskHistoryRepository } from './database/task-history-repository';
 import apiRouter from './api/routes';
 import path from 'path';
 import fs from 'fs';
+import { execSync } from 'child_process';
 
 /**
  * SIPp Web Manager 后端服务
@@ -74,9 +76,65 @@ class SippWebManagerApp {
       logger.info('Checking database schema...');
       await initializeDatabase();
       logger.info('Database initialized successfully');
+
+      // 恢复运行中任务的状态
+      await this.recoverRunningTasks();
     } catch (error: any) {
       logger.error('Database initialization error (continuing anyway):', { error: error.message });
       // 不抛出错误，允许应用继续启动
+    }
+  }
+
+  /**
+   * 恢复运行中任务的状态
+   * 检查数据库中状态为 RUNNING 的任务，验证进程是否仍在运行
+   */
+  private async recoverRunningTasks(): Promise<void> {
+    try {
+      const runningTasks = await taskHistoryRepository.findByStatus('RUNNING');
+      logger.info(`Found ${runningTasks.length} tasks with RUNNING status`);
+
+      for (const task of runningTasks) {
+        if (task.pid) {
+          // 检查进程是否仍在运行
+          const isAlive = this.isProcessAlive(task.pid);
+          if (isAlive) {
+            logger.info(`Task ${task.id} (PID: ${task.pid}) is still running`);
+            // 进程仍在运行，保持状态
+          } else {
+            // 进程已不存在，标记为失败
+            logger.warn(`Task ${task.id} (PID: ${task.pid}) process not found, marking as FAILED`);
+            await taskHistoryRepository.update(task.id, {
+              status: 'FAILED',
+              end_time: Date.now(),
+              error: '服务重启后进程丢失',
+            });
+          }
+        } else {
+          // 没有 PID 记录，标记为失败
+          logger.warn(`Task ${task.id} has no PID, marking as FAILED`);
+          await taskHistoryRepository.update(task.id, {
+            status: 'FAILED',
+            end_time: Date.now(),
+            error: '服务重启后进程丢失',
+          });
+        }
+      }
+    } catch (error: any) {
+      logger.error('Failed to recover running tasks:', { error: error.message });
+    }
+  }
+
+  /**
+   * 检查进程是否存活
+   */
+  private isProcessAlive(pid: number): boolean {
+    try {
+      // 发送信号 0 检查进程是否存在
+      execSync(`kill -0 ${pid} 2>/dev/null`);
+      return true;
+    } catch {
+      return false;
     }
   }
 

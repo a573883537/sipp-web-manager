@@ -1,5 +1,6 @@
 import { spawn, ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
+import dgram from 'dgram';
 import path from 'path';
 import fs from 'fs';
 import { logger } from '../utils/logger';
@@ -7,28 +8,137 @@ import { config } from '../config';
 import { injectionFileService } from './injection-file-service';
 
 /**
- * SIPp进程管理器
- * 职责：启动、停止和管理SIPp进程
- * 遵循单一职责原则
+ * 单个 SIPp 进程实例
  */
-export class SippProcessManager extends EventEmitter {
+class SippProcessInstance extends EventEmitter {
   private process: ChildProcess | null = null;
   private isRunning: boolean = false;
-  private sippPath: string;
+  private controlPort: number = 0;
+  private isPaused: boolean = false;
+  private currentRate: number = 10;
+  public readonly taskId: string;
+  public readonly sippPath: string;
 
-  constructor(sippPath: string = process.env.SIPP_PATH || 'sipp') {
+  constructor(taskId: string, sippPath: string, controlPort: number) {
     super();
+    this.taskId = taskId;
     this.sippPath = sippPath;
+    this.controlPort = controlPort;
   }
 
   /**
-   * 启动SIPp测试
-   * @param scenarioFile 场景文件名
-   * @param options 测试选项
+   * 发送控制命令到 SIPp
    */
+  sendCommand(command: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      if (!this.isRunning || this.controlPort === 0) {
+        reject(new Error('Process not running or no control port'));
+        return;
+      }
+
+      const client = dgram.createSocket('udp4');
+      const buffer = Buffer.from(command);
+
+      client.send(buffer, 0, buffer.length, this.controlPort, '127.0.0.1', (err) => {
+        client.close();
+        if (err) {
+          logger.error(`Failed to send command to task ${this.taskId}:`, err);
+          reject(err);
+        } else {
+          logger.debug(`Sent command to task ${this.taskId}: ${command}`);
+          resolve();
+        }
+      });
+    });
+  }
+
+  /**
+   * 设置呼叫速率
+   */
+  async setRate(rate: number): Promise<void> {
+    await this.sendCommand(`cset rate ${rate}`);
+    this.currentRate = rate;
+  }
+
+  /**
+   * 设置并发用户数
+   */
+  async setUsers(users: number): Promise<void> {
+    await this.sendCommand(`cset users ${users}`);
+  }
+
+  /**
+   * 设置呼叫限制
+   */
+  async setLimit(limit: number): Promise<void> {
+    await this.sendCommand(`cset limit ${limit}`);
+  }
+
+  /**
+   * 暂停/恢复测试
+   */
+  async pause(): Promise<void> {
+    await this.sendCommand('p');
+    this.isPaused = !this.isPaused;
+  }
+
+  /**
+   * 优雅停止（等待当前呼叫完成）
+   */
+  async quit(): Promise<void> {
+    await this.sendCommand('q');
+  }
+
+  /**
+   * 强制停止
+   */
+  async forceQuit(): Promise<void> {
+    await this.sendCommand('Q');
+  }
+
+  /**
+   * 增加速率
+   */
+  async increaseRate(): Promise<void> {
+    await this.sendCommand('+');
+    this.currentRate += 1;
+  }
+
+  /**
+   * 减少速率
+   */
+  async decreaseRate(): Promise<void> {
+    await this.sendCommand('-');
+    if (this.currentRate > 1) this.currentRate -= 1;
+  }
+
+  /**
+   * 截取屏幕 - 通过 SIGUSR2 信号触发
+   */
+  async dumpScreen(): Promise<void> {
+    if (!this.process || !this.process.pid) {
+      throw new Error('Process not running');
+    }
+    this.process.kill('SIGUSR2');
+  }
+
+  /**
+   * 获取屏幕截图文件路径
+   */
+  getScreenFilePath(): string {
+    return path.join(config.sipp.logDir, `${this.taskId}_screen.log`);
+  }
+
+  /**
+   * 获取日志文件目录
+   */
+  getLogDir(): string {
+    return config.sipp.logDir;
+  }
+
   async start(scenarioFile: string, options: SippStartOptions = {}): Promise<void> {
     if (this.isRunning) {
-      throw new Error('SIPp is already running');
+      throw new Error(`Task ${this.taskId} is already running`);
     }
 
     const {
@@ -45,12 +155,17 @@ export class SippProcessManager extends EventEmitter {
       maxRtpPort,
       enableRtpEcho = false,
       mediaIp,
+      oocsf,
     } = options;
+
+    // 初始化状态
+    this.currentRate = rate;
+    this.isPaused = false;
 
     // 构建场景文件完整路径
     const scenarioPath = path.join(config.sipp.scenarioDir, scenarioFile);
 
-    // 转换传输协议格式（SIPp 期望 u1/t1/l1 格式）
+    // 转换传输协议格式
     const transportMap: Record<string, string> = {
       'udp': 'u1',
       'tcp': 't1',
@@ -58,109 +173,114 @@ export class SippProcessManager extends EventEmitter {
     };
     const sippTransport = transportMap[transport] || 'u1';
 
+    // 为每个任务创建独立的 CSV 文件（放在日志目录下便于管理）
+    const csvPath = path.join(config.sipp.logDir, `${this.taskId}_stats.csv`);
+
     // 构建SIPp命令参数
     const args = [
-      '-sf', scenarioPath,                    // 场景文件
-      remoteHost + ':' + remotePort,          // 远程SIP服务器
-      '-p', localPort.toString(),             // 本地端口
-      '-r', rate.toString(),                  // 呼叫速率
-      '-l', users.toString(),                 // 最大并发用户数
-      '-t', sippTransport,                    // 传输协议（u1=UDP, t1=TCP, l1=TLS）
-      '-trace_stat',                          // 启用统计跟踪
-      '-stf', config.sipp.csvPath,            // CSV统计文件
-      '-fd', statsInterval.toString(),        // 统计采样间隔（秒）
-      '-ci', config.sipp.host,                // 控制接口主机
-      '-cp', config.sipp.controlPort.toString(), // 控制接口端口
-      '-nostdin',                             // 禁用标准输入
-      // 注意：不使用 -bg 参数，因为它会导致 SIPp fork 并退出主进程，
-      // 这会让 Node.js spawn 认为进程失败。我们通过 spawn 本身管理后台运行。
+      '-sf', scenarioPath,
+      remoteHost + ':' + remotePort,
+      '-p', localPort.toString(),
+      '-r', rate.toString(),
+      '-l', users.toString(),
+      '-t', sippTransport,
+      '-trace_stat',
+      '-stf', csvPath,
+      '-fd', statsInterval.toString(),
+      '-nostdin',
+      '-cp', this.controlPort.toString(),  // 控制端口
+      '-trace_screen',  // 启用屏幕追踪
+      '-screen_file', path.join(config.sipp.logDir, `${this.taskId}_screen.log`),  // 自定义屏幕文件名
     ];
 
-    // 添加呼叫限制（如果设置）
+    // 添加呼叫限制
     if (limit > 0) {
       args.push('-m', limit.toString());
     }
 
-    // 添加超时（毫秒转秒）
+    // 添加超时
     if (timeout > 0) {
       args.push('-timeout', (timeout / 1000).toString() + 's');
     }
 
-    // 添加注入文件支持（用于携带用户认证信息）
+    // 添加注入文件
     if (options.injectionFile) {
       const injectionPath = injectionFileService.getFilePath(options.injectionFile);
-
-      // 验证注入文件存在
       if (!fs.existsSync(injectionPath)) {
         throw new Error(`Injection file not found: ${options.injectionFile}`);
       }
-
       args.push('-inf', injectionPath);
-
-      logger.info('Using injection file', {
-        filename: options.injectionFile,
-        path: injectionPath
-      });
     }
 
-    // 添加RTP端口范围配置
+    // 添加RTP端口范围
     if (minRtpPort !== undefined && maxRtpPort !== undefined) {
-      // 验证端口范围合法性
       if (minRtpPort < 1024 || minRtpPort > 65535 || maxRtpPort < 1024 || maxRtpPort > 65535) {
         throw new Error('RTP ports must be between 1024 and 65535');
       }
       if (minRtpPort >= maxRtpPort) {
         throw new Error('minRtpPort must be less than maxRtpPort');
       }
-      // 确保端口范围足够容纳并发呼叫（每个呼叫需2个端口：RTP+RTCP）
-      const requiredPorts = users * 2;
-      const availablePorts = maxRtpPort - minRtpPort + 1;
-      if (availablePorts < requiredPorts) {
-        logger.warn('RTP port range may be insufficient', {
-          users,
-          requiredPorts,
-          availablePorts,
-          minRtpPort,
-          maxRtpPort
-        });
-      }
-
       args.push('-min_rtp_port', minRtpPort.toString());
       args.push('-max_rtp_port', maxRtpPort.toString());
-
-      logger.info('Using custom RTP port range', {
-        minRtpPort,
-        maxRtpPort,
-        availablePorts,
-        requiredPorts
-      });
     }
 
-    // 启用RTP回音（用于测试，将收到的RTP包原样返回）
+    // 启用RTP回音
     if (enableRtpEcho) {
       args.push('-rtp_echo');
-      logger.info('RTP echo enabled');
     }
 
-    // 设置媒体IP地址
+    // 设置媒体IP
     if (mediaIp) {
       args.push('-mi', mediaIp);
-      logger.info('Using custom media IP', { mediaIp });
     }
 
+    // 添加会话外场景文件（用于处理 NOTIFY/OPTIONS 等）
+    if (oocsf) {
+      const oocsfPath = path.join(config.sipp.scenarioDir, oocsf);
+      if (!fs.existsSync(oocsfPath)) {
+        throw new Error(`Out of call scenario file not found: ${oocsf}`);
+      }
+      args.push('-oocsf', oocsfPath);
+    }
+
+    // 日志追踪选项（统一使用 taskId 前缀便于管理）
+    const logPrefix = path.join(config.sipp.logDir, this.taskId);
+    if (options.traceMsg) {
+      args.push('-trace_msg', '-message_file', `${logPrefix}_messages.log`);
+    }
+    if (options.traceErr) {
+      args.push('-trace_err', '-error_file', `${logPrefix}_errors.log`);
+    }
+    if (options.traceCalldebug) {
+      args.push('-trace_calldebug', '-calldebug_file', `${logPrefix}_calldebug.log`);
+    }
+    if (options.traceShortmsg) {
+      args.push('-trace_shortmsg', '-shortmessage_file', `${logPrefix}_shortmsg.log`);
+    }
+    if (options.traceLogs) {
+      args.push('-trace_logs', '-log_file', `${logPrefix}_logs.log`);
+    }
+    if (options.traceRtt) args.push('-trace_rtt');
+    if (options.traceScreen) args.push('-trace_screen');
+
+    // 其他高级选项
+    if (options.localIp) args.push('-i', options.localIp);
+    if (options.bindLocal) args.push('-bind_local');
+    if (options.rsa) args.push('-rsa', options.rsa);
+
     logger.info('Starting SIPp process', {
+      taskId: this.taskId,
       sippPath: this.sippPath,
       args: args.join(' '),
       scenarioFile,
     });
 
     try {
-      // 启动SIPp进程
       this.process = spawn(this.sippPath, args, {
         cwd: config.sipp.scenarioDir,
         env: {
           ...process.env,
-          LD_LIBRARY_PATH: path.dirname(this.sippPath), // 添加库路径
+          LD_LIBRARY_PATH: path.dirname(this.sippPath),
         },
       });
 
@@ -169,88 +289,80 @@ export class SippProcessManager extends EventEmitter {
       // 处理标准输出
       this.process.stdout?.on('data', (data) => {
         const output = data.toString();
-        logger.debug('SIPp stdout', { output });
+        logger.debug('SIPp stdout', { taskId: this.taskId, output });
         this.emit('stdout', output);
       });
 
       // 处理标准错误
       this.process.stderr?.on('data', (data) => {
         const output = data.toString();
-        logger.warn('SIPp stderr', { output });
+        logger.warn('SIPp stderr', { taskId: this.taskId, output });
         this.emit('stderr', output);
       });
 
       // 处理进程退出
       this.process.on('exit', (code, signal) => {
-        logger.info('SIPp process exited', { code, signal });
+        logger.info('SIPp process exited', { taskId: this.taskId, code, signal });
         this.isRunning = false;
         this.process = null;
-        this.emit('exit', { code, signal });
+        this.emit('exit', { code, signal, taskId: this.taskId });
       });
 
       // 处理进程错误
       this.process.on('error', (error) => {
-        logger.error('SIPp process error:', error);
+        logger.error('SIPp process error:', { taskId: this.taskId, error });
         this.isRunning = false;
         this.process = null;
-        this.emit('error', error);
+        this.emit('error', { error, taskId: this.taskId });
       });
 
-      // 等待一小段时间确保进程启动
+      // 等待进程启动
       await this.sleep(1000);
 
-      // 检查进程是否还在运行
       if (!this.process || this.process.killed) {
         throw new Error('SIPp process failed to start');
       }
 
-      logger.info('SIPp process started successfully', { pid: this.process.pid });
-      this.emit('started', { pid: this.process.pid });
+      logger.info('SIPp process started successfully', { taskId: this.taskId, pid: this.process.pid });
+      this.emit('started', { pid: this.process.pid, taskId: this.taskId });
 
     } catch (error: any) {
       this.isRunning = false;
       this.process = null;
-      logger.error('Failed to start SIPp process:', error);
+      logger.error('Failed to start SIPp process:', { taskId: this.taskId, error });
       throw new Error(`Failed to start SIPp: ${error.message}`);
     }
   }
 
-  /**
-   * 停止SIPp进程
-   * @param force 是否强制停止
-   */
   async stop(force: boolean = false): Promise<void> {
     if (!this.process || !this.isRunning) {
-      logger.warn('No SIPp process to stop');
+      logger.warn('No SIPp process to stop', { taskId: this.taskId });
       return;
     }
 
     logger.info('Stopping SIPp process', {
+      taskId: this.taskId,
       pid: this.process.pid,
       force
     });
 
     try {
       if (force) {
-        // 强制终止
         this.process.kill('SIGKILL');
       } else {
-        // 优雅终止
         this.process.kill('SIGTERM');
       }
 
-      // 等待进程退出
       await this.waitForExit(5000);
 
-      logger.info('SIPp process stopped successfully');
-      this.emit('stopped');
+      logger.info('SIPp process stopped successfully', { taskId: this.taskId });
+      this.emit('stopped', { taskId: this.taskId });
 
     } catch (error: any) {
-      logger.error('Failed to stop SIPp process:', error);
+      logger.error('Failed to stop SIPp process:', { taskId: this.taskId, error });
 
-      // 如果优雅终止失败，强制终止
       if (!force && this.process) {
-        logger.warn('Forcing SIPp process termination');
+        logger.warn('Forcing SIPp process termination', { taskId: this.taskId });
         this.process.kill('SIGKILL');
       }
 
@@ -258,33 +370,18 @@ export class SippProcessManager extends EventEmitter {
     }
   }
 
-  /**
-   * 重启SIPp进程
-   */
-  async restart(scenarioFile: string, options: SippStartOptions = {}): Promise<void> {
-    logger.info('Restarting SIPp process');
-
-    if (this.isRunning) {
-      await this.stop();
-    }
-
-    await this.start(scenarioFile, options);
-  }
-
-  /**
-   * 获取进程状态
-   */
   getStatus(): SippProcessStatus {
     return {
       isRunning: this.isRunning,
       pid: this.process?.pid || null,
       hasProcess: this.process !== null,
+      taskId: this.taskId,
+      controlPort: this.controlPort,
+      isPaused: this.isPaused,
+      currentRate: this.currentRate,
     };
   }
 
-  /**
-   * 等待进程退出
-   */
   private waitForExit(timeout: number): Promise<void> {
     return new Promise((resolve, reject) => {
       if (!this.process) {
@@ -303,11 +400,189 @@ export class SippProcessManager extends EventEmitter {
     });
   }
 
-  /**
-   * 睡眠辅助函数
-   */
   private sleep(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
+  }
+}
+
+/**
+ * SIPp进程管理器（支持多任务并发）
+ */
+export class SippProcessManager extends EventEmitter {
+  private processes: Map<string, SippProcessInstance> = new Map();
+  private sippPath: string;
+  private nextControlPort: number = 8888;  // 控制端口起始值
+
+  constructor(sippPath: string = process.env.SIPP_PATH || 'sipp') {
+    super();
+    this.sippPath = sippPath;
+  }
+
+  /**
+   * 分配控制端口
+   */
+  private allocateControlPort(): number {
+    const port = this.nextControlPort;
+    this.nextControlPort++;
+    if (this.nextControlPort > 9999) {
+      this.nextControlPort = 8888;  // 循环使用
+    }
+    return port;
+  }
+
+  /**
+   * 启动SIPp测试
+   */
+  async start(taskId: string, scenarioFile: string, options: SippStartOptions = {}): Promise<void> {
+    // 检查任务是否已存在
+    if (this.processes.has(taskId)) {
+      const existingProcess = this.processes.get(taskId)!;
+      if (existingProcess.getStatus().isRunning) {
+        throw new Error(`Task ${taskId} is already running`);
+      }
+      // 清理已完成的任务
+      this.processes.delete(taskId);
+    }
+
+    // 分配控制端口
+    const controlPort = this.allocateControlPort();
+
+    // 创建新的进程实例
+    const processInstance = new SippProcessInstance(taskId, this.sippPath, controlPort);
+
+    // 转发事件
+    processInstance.on('stdout', (output) => this.emit('stdout', { taskId, output }));
+    processInstance.on('stderr', (output) => this.emit('stderr', { taskId, output }));
+    processInstance.on('exit', (data) => this.emit('exit', data));
+    processInstance.on('error', (data) => this.emit('error', data));
+    processInstance.on('started', (data) => this.emit('started', data));
+    processInstance.on('stopped', (data) => this.emit('stopped', data));
+
+    // 保存进程实例
+    this.processes.set(taskId, processInstance);
+
+    // 启动进程
+    await processInstance.start(scenarioFile, options);
+  }
+
+  /**
+   * 停止指定任务
+   */
+  async stop(taskId: string, force: boolean = false): Promise<void> {
+    const processInstance = this.processes.get(taskId);
+    if (!processInstance) {
+      throw new Error(`Task ${taskId} not found`);
+    }
+
+    await processInstance.stop(force);
+    this.processes.delete(taskId);
+  }
+
+  /**
+   * 停止所有任务
+   */
+  async stopAll(force: boolean = false): Promise<void> {
+    const stopPromises = Array.from(this.processes.keys()).map(taskId =>
+      this.stop(taskId, force).catch(err => {
+        logger.error('Failed to stop task', { taskId, error: err });
+      })
+    );
+    await Promise.all(stopPromises);
+  }
+
+  /**
+   * 获取指定任务状态
+   */
+  getStatus(taskId: string): SippProcessStatus | null {
+    const processInstance = this.processes.get(taskId);
+    return processInstance ? processInstance.getStatus() : null;
+  }
+
+  /**
+   * 获取所有任务状态
+   */
+  getAllStatus(): Map<string, SippProcessStatus> {
+    const statusMap = new Map<string, SippProcessStatus>();
+    this.processes.forEach((instance, taskId) => {
+      statusMap.set(taskId, instance.getStatus());
+    });
+    return statusMap;
+  }
+
+  /**
+   * 获取运行中的任务数量
+   */
+  getRunningCount(): number {
+    let count = 0;
+    this.processes.forEach(instance => {
+      if (instance.getStatus().isRunning) {
+        count++;
+      }
+    });
+    return count;
+  }
+
+  /**
+   * 清理已完成的任务
+   */
+  cleanup(): void {
+    const toDelete: string[] = [];
+    this.processes.forEach((instance, taskId) => {
+      if (!instance.getStatus().isRunning) {
+        toDelete.push(taskId);
+      }
+    });
+    toDelete.forEach(taskId => this.processes.delete(taskId));
+  }
+
+  /**
+   * 发送控制命令到指定任务
+   */
+  async sendCommand(taskId: string, command: string, args?: any): Promise<void> {
+    const processInstance = this.processes.get(taskId);
+    if (!processInstance) {
+      throw new Error(`Task ${taskId} not found`);
+    }
+
+    switch (command) {
+      case 'setRate':
+        await processInstance.setRate(args.rate);
+        break;
+      case 'setUsers':
+        await processInstance.setUsers(args.users);
+        break;
+      case 'setLimit':
+        await processInstance.setLimit(args.limit);
+        break;
+      case 'pause':
+        await processInstance.pause();
+        break;
+      case 'quit':
+        await processInstance.quit();
+        break;
+      case 'forceQuit':
+        await processInstance.forceQuit();
+        break;
+      case 'increaseRate':
+        await processInstance.increaseRate();
+        break;
+      case 'decreaseRate':
+        await processInstance.decreaseRate();
+        break;
+      case 'dumpScreen':
+        await processInstance.dumpScreen();
+        break;
+      default:
+        throw new Error(`Unknown command: ${command}`);
+    }
+  }
+
+  /**
+   * 获取任务的日志目录
+   */
+  getLogDir(taskId: string): string | null {
+    const processInstance = this.processes.get(taskId);
+    return processInstance ? processInstance.getLogDir() : null;
   }
 }
 
@@ -329,6 +604,19 @@ export interface SippStartOptions {
   maxRtpPort?: number;     // RTP端口范围结束（默认：系统动态分配）
   enableRtpEcho?: boolean; // 启用RTP回音（测试用，将收到的RTP包原样返回）
   mediaIp?: string;        // 媒体IP地址（默认：本地IP）
+  oocsf?: string;          // 会话外场景文件（Out Of Call Scenario File），用于处理 NOTIFY/OPTIONS 等
+  // 日志追踪选项
+  traceMsg?: boolean;      // 追踪SIP消息 (-trace_msg)
+  traceErr?: boolean;      // 追踪错误 (-trace_err)
+  traceCalldebug?: boolean; // 追踪呼叫调试 (-trace_calldebug)
+  traceShortmsg?: boolean; // 追踪短消息 (-trace_shortmsg)
+  traceLogs?: boolean;     // 追踪日志 (-trace_logs)
+  traceRtt?: boolean;      // 追踪往返时间 (-trace_rtt)
+  traceScreen?: boolean;   // 追踪屏幕输出 (-trace_screen)
+  // 其他高级选项
+  localIp?: string;        // 本地IP地址 (-i)
+  bindLocal?: boolean;     // 绑定本地端口 (-bind_local)
+  rsa?: string;            // 远程发送地址 (-rsa)
 }
 
 /**
@@ -338,6 +626,10 @@ export interface SippProcessStatus {
   isRunning: boolean;
   pid: number | null;
   hasProcess: boolean;
+  taskId: string;
+  controlPort: number;
+  isPaused: boolean;
+  currentRate: number;
 }
 
 // 单例导出

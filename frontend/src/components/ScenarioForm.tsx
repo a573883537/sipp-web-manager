@@ -29,8 +29,7 @@ import {
   ThunderboltOutlined,
   AimOutlined,
 } from '@ant-design/icons';
-import type { Scenario, ScenarioMessage, MessageType, InjectionFile, ActionType, ExecSubType } from '@/types';
-import { apiService } from '@/services/api';
+import type { Scenario, ScenarioMessage, MessageType } from '@/types';
 
 const { TextArea } = Input;
 const { Panel } = Collapse;
@@ -327,7 +326,7 @@ Content-Length: [len]
 [last_To:];tag=[pid]SIPpTag[call_number]
 [last_Call-ID:]
 [last_CSeq:]
-Contact: <sip:[local_ip]:[local_port]>
+[last_Contact:]
 Content-Type: application/sdp
 Content-Length: [len]
 
@@ -347,7 +346,7 @@ a=sendrecv`,
 [last_To:];tag=[pid]SIPpTag[call_number]
 [last_Call-ID:]
 [last_CSeq:]
-Contact: <sip:[local_ip]:[local_port]>
+[last_Contact:]
 Content-Length: 0`,
 
   RESPONSE_183_SESSION_PROGRESS: `SIP/2.0 183 Session Progress
@@ -356,7 +355,7 @@ Content-Length: 0`,
 [last_To:];tag=[pid]SIPpTag[call_number]
 [last_Call-ID:]
 [last_CSeq:]
-Contact: <sip:[local_ip]:[local_port]>
+[last_Contact:]
 Content-Type: application/sdp
 Content-Length: [len]
 
@@ -375,6 +374,7 @@ a=sendrecv`,
 [last_To:];tag=[pid]SIPpTag[call_number]
 [last_Call-ID:]
 [last_CSeq:]
+[last_Contact:]
 WWW-Authenticate: Digest realm="[remote_ip]",nonce="[timestamp]",algorithm=MD5,qop="auth"
 Server: SIPp
 Content-Length: 0`,
@@ -385,6 +385,7 @@ Content-Length: 0`,
 [last_To:];tag=[pid]SIPpTag[call_number]
 [last_Call-ID:]
 [last_CSeq:]
+[last_Contact:]
 Proxy-Authenticate: Digest realm="[remote_ip]",nonce="[timestamp]",algorithm=MD5,qop="auth"
 Server: SIPp
 Content-Length: 0`,
@@ -395,6 +396,7 @@ Content-Length: 0`,
 [last_To:];tag=[pid]SIPpTag[call_number]
 [last_Call-ID:]
 [last_CSeq:]
+[last_Contact:]
 Server: SIPp
 Content-Length: 0`,
 
@@ -404,6 +406,7 @@ Content-Length: 0`,
 [last_To:];tag=[pid]SIPpTag[call_number]
 [last_Call-ID:]
 [last_CSeq:]
+[last_Contact:]
 Server: SIPp
 Content-Length: 0`,
 };
@@ -422,29 +425,6 @@ const ScenarioForm: React.FC<ScenarioFormProps> = ({
   const [form] = Form.useForm();
   const [messages, setMessages] = useState<ScenarioMessage[]>([]);
   const [loading, setLoading] = useState(false);
-  const [injectionFiles, setInjectionFiles] = useState<InjectionFile[]>([]);
-  const [injectionFilesLoading, setInjectionFilesLoading] = useState(false);
-
-  // 加载注入文件列表
-  useEffect(() => {
-    const loadInjectionFiles = async () => {
-      setInjectionFilesLoading(true);
-      try {
-        const response: any = await apiService.listInjectionFiles();
-        if (response.success && response.files) {
-          setInjectionFiles(response.files);
-        }
-      } catch (error: any) {
-        console.error('Failed to load injection files:', error);
-      } finally {
-        setInjectionFilesLoading(false);
-      }
-    };
-
-    if (visible) {
-      loadInjectionFiles();
-    }
-  }, [visible]);
 
   // 监听visible和initialData变化，正确初始化表单
   useEffect(() => {
@@ -454,7 +434,6 @@ const ScenarioForm: React.FC<ScenarioFormProps> = ({
         form.setFieldsValue({
           name: initialData.scenario.name,
           filename: initialData.filename.replace('.xml', ''),
-          injection_file: initialData.scenario.injection_file || undefined,
         });
         setMessages(initialData.scenario.messages || []);
       } else {
@@ -600,7 +579,7 @@ const ScenarioForm: React.FC<ScenarioFormProps> = ({
         messages,
         variables: [],
         init: [],
-        injection_file: values.injection_file || undefined,  // 关联注入文件
+        injection_file: undefined,  // 注入文件已移至启动测试
       };
 
       const filename = values.filename.endsWith('.xml')
@@ -1128,7 +1107,7 @@ const ScenarioForm: React.FC<ScenarioFormProps> = ({
             <Space wrap>
               <Input
                 addonBefore="跳转目标 (next)"
-                placeholder="当 optional=true 且未收到时跳转（如: send_bye）"
+                placeholder="当 optional=true 且收到时跳转（如: send_bye）"
                 value={msg.next}
                 onChange={(e) => updateMessage(index, { next: e.target.value || undefined })}
                 style={{ width: 380 }}
@@ -1548,7 +1527,6 @@ const ScenarioForm: React.FC<ScenarioFormProps> = ({
         initialValues={{
           name: initialData?.scenario.name || '',
           filename: initialData?.filename.replace('.xml', '') || '',
-          injection_file: initialData?.scenario.injection_file || undefined,
         }}
       >
         <Form.Item
@@ -1572,27 +1550,6 @@ const ScenarioForm: React.FC<ScenarioFormProps> = ({
         >
           <Input placeholder="例如: basic-uac-flow" addonAfter=".xml" />
         </Form.Item>
-
-        <Form.Item
-          name="injection_file"
-          label="关联注入文件"
-          tooltip="如果场景需要动态数据（如用户名密码），可关联注入文件"
-        >
-          <Select
-            placeholder="选择注入文件（可选）"
-            loading={injectionFilesLoading}
-            allowClear
-            showSearch
-            optionFilterProp="children"
-            filterOption={(input, option) =>
-              (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
-            }
-            options={injectionFiles.map(file => ({
-              value: file.filename,
-              label: `${file.filename} (${file.row_count} 行, ${file.read_mode})`,
-            }))}
-          />
-        </Form.Item>
       </Form>
 
       <Divider>消息序列</Divider>
@@ -1600,9 +1557,12 @@ const ScenarioForm: React.FC<ScenarioFormProps> = ({
       <div style={{ marginBottom: 16 }}>
         <Space wrap>
           <Dropdown
-            menu={sendTemplateMenu}
+            menu={{
+              ...sendTemplateMenu,
+              style: { maxHeight: '500px', overflowY: 'auto' },
+            }}
             placement="bottomLeft"
-            overlayStyle={{ maxHeight: '400px', overflowY: 'auto' }}
+            trigger={['click']}
           >
             <Button
               type="primary"

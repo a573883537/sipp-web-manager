@@ -106,6 +106,13 @@ class ApiService {
   }
 
   /**
+   * 获取场景的原始XML内容
+   */
+  async getScenarioXml(filename: string): Promise<ApiResponse<{ xml: string }>> {
+    return this.client.get(`/scenarios/${filename}/xml`);
+  }
+
+  /**
    * 创建/更新场景
    */
   async saveScenario(filename: string, scenario: Scenario): Promise<ApiResponse> {
@@ -169,6 +176,14 @@ class ApiService {
     enableRtpEcho?: boolean; // 启用RTP回音
     mediaIp?: string; // 媒体IP地址
     mediaIpType?: string; // 媒体IP类型（仅前端参考，不传给后端）
+    oocsf?: string; // 会话外场景文件
+    traceMsg?: boolean;
+    traceErr?: boolean;
+    traceCalldebug?: boolean;
+    traceShortmsg?: boolean;
+    traceLogs?: boolean;
+    traceRtt?: boolean;
+    traceScreen?: boolean;
   }): Promise<ApiResponse> {
     // 移除仅用于前端参考的字段
     const { mediaIpType, ...backendParams } = params;
@@ -178,8 +193,29 @@ class ApiService {
   /**
    * 停止SIPp测试
    */
-  async stopSippTest(force?: boolean): Promise<ApiResponse> {
-    return this.client.post('/sipp/stop', { force });
+  async stopSippTest(taskId: string, force?: boolean): Promise<ApiResponse> {
+    return this.client.post('/sipp/stop', { taskId, force });
+  }
+
+  /**
+   * 发送控制命令到运行中的任务
+   */
+  async sendTaskCommand(taskId: string, command: string, args?: any): Promise<ApiResponse> {
+    return this.client.post('/sipp/command', { taskId, command, args });
+  }
+
+  /**
+   * 获取任务屏幕截图
+   */
+  async getTaskScreen(taskId: string): Promise<ApiResponse<{ content: string }>> {
+    return this.client.get(`/sipp/screen/${taskId}`);
+  }
+
+  /**
+   * 获取任务实时统计数据
+   */
+  async getTaskStats(taskId: string): Promise<ApiResponse<{ stats: any }>> {
+    return this.client.get(`/sipp/stats/${taskId}`);
   }
 
   /**
@@ -290,6 +326,69 @@ class ApiService {
     }
   ): Promise<ApiResponse> {
     return this.client.put(`/task-history/${id}`, updates);
+  }
+
+  /**
+   * 删除任务历史记录
+   */
+  async deleteTaskHistory(id: string): Promise<ApiResponse> {
+    return this.client.delete(`/task-history/${id}`);
+  }
+
+  /**
+   * ==================== 配置模板 API ====================
+   */
+
+  /**
+   * 获取所有配置模板
+   */
+  async getConfigTemplates(): Promise<ApiResponse<{ templates: any[] }>> {
+    return this.client.get('/config-templates');
+  }
+
+  /**
+   * 获取默认配置模板
+   */
+  async getDefaultConfigTemplate(): Promise<ApiResponse<{ template: any }>> {
+    return this.client.get('/config-templates/default');
+  }
+
+  /**
+   * 创建配置模板
+   */
+  async createConfigTemplate(template: {
+    name: string;
+    description?: string;
+    config: Record<string, any>;
+    is_default?: boolean;
+  }): Promise<ApiResponse> {
+    return this.client.post('/config-templates', template);
+  }
+
+  /**
+   * 更新配置模板
+   */
+  async updateConfigTemplate(id: number, template: {
+    name?: string;
+    description?: string;
+    config?: Record<string, any>;
+    is_default?: boolean;
+  }): Promise<ApiResponse> {
+    return this.client.put(`/config-templates/${id}`, template);
+  }
+
+  /**
+   * 设置默认配置模板
+   */
+  async setDefaultConfigTemplate(id: number): Promise<ApiResponse> {
+    return this.client.post(`/config-templates/${id}/set-default`);
+  }
+
+  /**
+   * 删除配置模板
+   */
+  async deleteConfigTemplate(id: number): Promise<ApiResponse> {
+    return this.client.delete(`/config-templates/${id}`);
   }
 }
 

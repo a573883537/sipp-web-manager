@@ -3,54 +3,127 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { ConfigProvider, App as AntApp, message } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import Layout from '@/components/Layout';
-import Dashboard from '@/pages/Dashboard';
 import Scenarios from '@/pages/Scenarios';
-import Config from '@/pages/Config';
 import InjectionFiles from '@/pages/InjectionFiles';
 import TaskHistory from '@/pages/TaskHistory';
 import { useAppStore } from '@/stores/useAppStore';
 import { wsService } from '@/services/websocket';
+import { apiService } from '@/services/api';
+import { TestTaskStatus } from '@/types';
 
 /**
  * 主应用组件
  * 职责：配置路由和全局状态监听
  */
 const App: React.FC = () => {
-  const { addCsvStats, setStats } = useAppStore();
+  const { updateTask } = useAppStore();
 
   useEffect(() => {
-    // 监听统计数据更新
-    wsService.on('stats:update', (stats) => {
-      setStats(stats);
-    });
+    const handleTaskCompleted = (data: any) => {
+      console.log('Task completed:', data);
+      const status = data.success ? TestTaskStatus.COMPLETED : TestTaskStatus.FAILED;
+      const error = data.success ? undefined : `进程退出码: ${data.exitCode}`;
 
-    // 监听CSV数据更新
-    wsService.on('stats:csv', (row) => {
-      addCsvStats(row);
-    });
+      updateTask(data.taskId, {
+        status,
+        endTime: data.timestamp,
+        error,
+      });
 
-    // 监听命令执行结果
-    wsService.on('command:success', (data) => {
+      // 使用 setTimeout 确保 store 已更新
+      setTimeout(() => {
+        const task = useAppStore.getState().tasks.find(t => t.id === data.taskId);
+        if (task) {
+          apiService.updateTaskHistory(data.taskId, {
+            status,
+            end_time: data.timestamp,
+            error,
+            stats: task.stats,
+          }).catch(err => {
+            console.error('Failed to save task history:', err);
+          });
+        }
+      }, 0);
+    };
+
+    const handleTaskFailed = (data: any) => {
+      console.log('Task failed:', data);
+      updateTask(data.taskId, {
+        status: TestTaskStatus.FAILED,
+        endTime: data.timestamp,
+        error: data.error,
+      });
+
+      setTimeout(() => {
+        const task = useAppStore.getState().tasks.find(t => t.id === data.taskId);
+        if (task) {
+          apiService.updateTaskHistory(data.taskId, {
+            status: TestTaskStatus.FAILED,
+            end_time: data.timestamp,
+            error: data.error,
+            stats: task.stats,
+          }).catch(err => {
+            console.error('Failed to save task history:', err);
+          });
+        }
+      }, 0);
+    };
+
+    const handleTaskStopped = (data: any) => {
+      console.log('Task stopped:', data);
+      updateTask(data.taskId, {
+        status: TestTaskStatus.STOPPED,
+        endTime: data.timestamp,
+      });
+
+      setTimeout(() => {
+        const task = useAppStore.getState().tasks.find(t => t.id === data.taskId);
+        if (task) {
+          apiService.updateTaskHistory(data.taskId, {
+            status: TestTaskStatus.STOPPED,
+            end_time: data.timestamp,
+            stats: task.stats,
+          }).catch(err => {
+            console.error('Failed to save task history:', err);
+          });
+        }
+      }, 0);
+    };
+
+    const handleCommandSuccess = (data: any) => {
       message.success(`命令执行成功: ${data.command}`);
-    });
+    };
 
-    wsService.on('command:error', (data) => {
+    const handleCommandError = (data: any) => {
       message.error(`命令执行失败: ${data.error}`);
-    });
+    };
 
-    // 监听SIPp消息
-    wsService.on('sipp:message', (data) => {
+    const handleSippMessage = (data: any) => {
       console.log('SIPp Message:', data);
-    });
+    };
 
-    wsService.on('sipp:error', (data) => {
+    const handleSippError = (data: any) => {
       message.error(`SIPp错误: ${data.error}`);
-    });
+    };
+
+    // 注册所有监听器
+    wsService.on('task:completed', handleTaskCompleted);
+    wsService.on('task:failed', handleTaskFailed);
+    wsService.on('task:stopped', handleTaskStopped);
+    wsService.on('command:success', handleCommandSuccess);
+    wsService.on('command:error', handleCommandError);
+    wsService.on('sipp:message', handleSippMessage);
+    wsService.on('sipp:error', handleSippError);
 
     return () => {
-      // 清理监听器
-      wsService.off('stats:update', setStats);
-      wsService.off('stats:csv', addCsvStats);
+      // 清理所有监听器
+      wsService.off('task:completed', handleTaskCompleted);
+      wsService.off('task:failed', handleTaskFailed);
+      wsService.off('task:stopped', handleTaskStopped);
+      wsService.off('command:success', handleCommandSuccess);
+      wsService.off('command:error', handleCommandError);
+      wsService.off('sipp:message', handleSippMessage);
+      wsService.off('sipp:error', handleSippError);
     };
   }, []);
 
@@ -60,12 +133,11 @@ const App: React.FC = () => {
         <BrowserRouter>
           <Routes>
             <Route path="/" element={<Layout />}>
-              <Route index element={<Dashboard />} />
+              <Route index element={<Navigate to="/scenarios" replace />} />
               <Route path="scenarios" element={<Scenarios />} />
               <Route path="injection-files" element={<InjectionFiles />} />
               <Route path="task-history" element={<TaskHistory />} />
-              <Route path="config" element={<Config />} />
-              <Route path="*" element={<Navigate to="/" replace />} />
+              <Route path="*" element={<Navigate to="/scenarios" replace />} />
             </Route>
           </Routes>
         </BrowserRouter>

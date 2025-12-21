@@ -1,9 +1,7 @@
 import React, { useEffect } from 'react';
 import { Layout as AntLayout, Menu, theme, Badge, Space, Typography } from 'antd';
 import {
-  DashboardOutlined,
   FileTextOutlined,
-  SettingOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   WifiOutlined,
@@ -40,11 +38,14 @@ const Layout: React.FC = () => {
     wsService.connect(backendUrl);
 
     // 监听连接状态
-    wsService.on('connection', (data) => {
+    const handleConnection = (data: any) => {
       setConnectionStatus(data.status);
-    });
+    };
+
+    wsService.on('connection', handleConnection);
 
     return () => {
+      wsService.off('connection', handleConnection);
       wsService.disconnect();
     };
   }, []);
@@ -53,11 +54,6 @@ const Layout: React.FC = () => {
    * 菜单项配置
    */
   const menuItems = [
-    {
-      key: '/',
-      icon: <DashboardOutlined />,
-      label: '监控面板',
-    },
     {
       key: '/scenarios',
       icon: <FileTextOutlined />,
@@ -72,11 +68,6 @@ const Layout: React.FC = () => {
       key: '/task-history',
       icon: <HistoryOutlined />,
       label: '任务历史',
-    },
-    {
-      key: '/config',
-      icon: <SettingOutlined />,
-      label: '配置中心',
     },
   ];
 

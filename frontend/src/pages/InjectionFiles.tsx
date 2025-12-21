@@ -244,7 +244,7 @@ const InjectionFiles: React.FC = () => {
                   <tr style={{ background: '#f5f5f5' }}>
                     <th style={{ padding: '8px', border: '1px solid #d9d9d9', textAlign: 'left' }}>字段</th>
                     <th style={{ padding: '8px', border: '1px solid #d9d9d9', textAlign: 'left' }}>场景引用</th>
-                    <th style={{ padding: '8px', border: '1px solid #d9d9d9', textAlign: 'left' }}>INVITE场景用途</th>
+                    <th style={{ padding: '8px', border: '1px solid #d9d9d9', textAlign: 'left' }}>用途说明</th>
                     <th style={{ padding: '8px', border: '1px solid #d9d9d9', textAlign: 'left' }}>示例值</th>
                   </tr>
                 </thead>
@@ -252,20 +252,20 @@ const InjectionFiles: React.FC = () => {
                   <tr>
                     <td style={{ padding: '8px', border: '1px solid #d9d9d9' }}>第1列</td>
                     <td style={{ padding: '8px', border: '1px solid #d9d9d9' }}><code>[field0]</code></td>
-                    <td style={{ padding: '8px', border: '1px solid #d9d9d9' }}>主叫号码/用户名（认证username）</td>
-                    <td style={{ padding: '8px', border: '1px solid #d9d9d9' }}>4020, 1001</td>
+                    <td style={{ padding: '8px', border: '1px solid #d9d9d9' }}>主叫号码/用户名</td>
+                    <td style={{ padding: '8px', border: '1px solid #d9d9d9' }}>1001, 2001</td>
                   </tr>
                   <tr style={{ background: '#fafafa' }}>
                     <td style={{ padding: '8px', border: '1px solid #d9d9d9' }}>第2列</td>
                     <td style={{ padding: '8px', border: '1px solid #d9d9d9' }}><code>[field1]</code></td>
-                    <td style={{ padding: '8px', border: '1px solid #d9d9d9' }}>认证密码（仅INVITE_AUTH）</td>
-                    <td style={{ padding: '8px', border: '1px solid #d9d9d9' }}>Yeastar202, pass123</td>
+                    <td style={{ padding: '8px', border: '1px solid #d9d9d9' }}>认证密码（需要认证时填写）</td>
+                    <td style={{ padding: '8px', border: '1px solid #d9d9d9' }}>pass123, secret</td>
                   </tr>
                   <tr>
                     <td style={{ padding: '8px', border: '1px solid #d9d9d9' }}>第3列</td>
                     <td style={{ padding: '8px', border: '1px solid #d9d9d9' }}><code>[field2]</code></td>
                     <td style={{ padding: '8px', border: '1px solid #d9d9d9' }}>被叫号码</td>
-                    <td style={{ padding: '8px', border: '1px solid #d9d9d9' }}>2188, 4021</td>
+                    <td style={{ padding: '8px', border: '1px solid #d9d9d9' }}>9000, 8888</td>
                   </tr>
                   <tr style={{ background: '#fafafa' }}>
                     <td style={{ padding: '8px', border: '1px solid #d9d9d9' }}>第N列</td>
@@ -276,7 +276,7 @@ const InjectionFiles: React.FC = () => {
                 </tbody>
               </table>
 
-              <p style={{ marginTop: 12, marginBottom: 8, fontWeight: 'bold' }}>💡 完整示例（INVITE认证场景）：</p>
+              <p style={{ marginTop: 12, marginBottom: 8, fontWeight: 'bold' }}>💡 完整示例：</p>
               <div style={{ display: 'flex', gap: 16 }}>
                 <div style={{ flex: 1 }}>
                   <p style={{ marginBottom: 4, fontWeight: 'bold', fontSize: 12 }}>CSV文件内容：</p>
@@ -289,10 +289,10 @@ const InjectionFiles: React.FC = () => {
                     margin: 0
                   }}>
 {`SEQUENTIAL
-# [field0];[field1];[field2]
-4020;Yeastar202;2188
-4021;Yeastar203;2188
-4022;Yeastar204;2188`}
+# 主叫号码;密码;被叫号码
+1001;pass123;9000
+1002;pass456;9000
+1003;pass789;9000`}
                   </pre>
                 </div>
                 <div style={{ flex: 1 }}>
@@ -316,7 +316,7 @@ To: <sip:[field2]@[remote_ip]>
                 </div>
               </div>
               <p style={{ marginTop: 8, fontSize: 12, color: '#666' }}>
-                <strong>说明：</strong>普通INVITE场景密码列可为空但需保留（如：<code>4020;;2188</code>），认证INVITE场景必须填写密码。
+                <strong>说明：</strong>不需要认证时密码列可为空但需保留分号（如：<code>1001;;9000</code>）
               </p>
             </div>
           }
@@ -370,10 +370,10 @@ To: <sip:[field2]@[remote_ip]>
             <TextArea
               rows={12}
               placeholder={`SEQUENTIAL
-# [field0];[field1];[field2]
-4000;password4000;192.168.1.100
-4001;password4001;192.168.1.100
-4002;password4002;192.168.1.100`}
+# 主叫号码;密码;被叫号码
+1001;pass123;9000
+1002;pass456;9000
+1003;pass789;9000`}
               style={{ fontFamily: 'monospace' }}
             />
           </Form.Item>

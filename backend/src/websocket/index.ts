@@ -5,6 +5,8 @@ import { logger } from '../utils/logger';
 import { sippClient } from '../services/sipp-client';
 import { sippProcessManager } from '../services/sipp-process';
 import { CsvParser } from '../parsers/csv-parser';
+import { taskHistoryRepository } from '../database/task-history-repository';
+import path from 'path';
 
 /**
  * WebSocket服务
@@ -100,7 +102,7 @@ export class WebSocketService {
   private setupSippProcessListeners(): void {
     // 进程启动成功
     sippProcessManager.on('started', (data) => {
-      const taskId = (sippProcessManager as any).currentTaskId;
+      const taskId = data.taskId;
       if (taskId) {
         this.broadcast('task:started', {
           taskId,
@@ -112,11 +114,37 @@ export class WebSocketService {
     });
 
     // 进程退出
-    sippProcessManager.on('exit', (data) => {
-      const taskId = (sippProcessManager as any).currentTaskId;
+    sippProcessManager.on('exit', async (data) => {
+      const taskId = data.taskId;
       if (taskId) {
         // 根据退出码判断是成功还是失败
         const isSuccess = data.code === 0;
+
+        // 读取CSV统计数据并更新数据库
+        try {
+          const csvPath = path.join(config.sipp.logDir, `${taskId}_stats.csv`);
+          const parser = new CsvParser({ filePath: csvPath, watchMode: false });
+          const stats = await parser.getLatest();
+          if (stats) {
+            const successRate = stats.totalCalls > 0
+              ? Math.round((stats.successCalls / stats.totalCalls) * 10000) / 100
+              : 0;
+            await taskHistoryRepository.update(taskId, {
+              status: isSuccess ? 'COMPLETED' : 'FAILED',
+              stats: {
+                totalCalls: stats.totalCalls,
+                successCalls: stats.successCalls,
+                failedCalls: stats.failedCalls,
+                successRate,
+              },
+              end_time: Date.now(),
+              error: isSuccess ? undefined : `进程退出码: ${data.code}`,
+            });
+          }
+        } catch (err: any) {
+          logger.error('Failed to update task stats:', err);
+        }
+
         this.broadcast('task:completed', {
           taskId,
           timestamp: Date.now(),
@@ -130,37 +158,31 @@ export class WebSocketService {
           signal: data.signal,
           success: isSuccess,
         });
-        // 清除任务 ID
-        (sippProcessManager as any).currentTaskId = null;
       }
     });
 
     // 进程错误
-    sippProcessManager.on('error', (error) => {
-      const taskId = (sippProcessManager as any).currentTaskId;
+    sippProcessManager.on('error', (data) => {
+      const taskId = data.taskId;
       if (taskId) {
         this.broadcast('task:failed', {
           taskId,
           timestamp: Date.now(),
-          error: error.message,
+          error: data.error?.message || 'Unknown error',
         });
-        logger.error('Task failed', { taskId, error: error.message });
-        // 清除任务 ID
-        (sippProcessManager as any).currentTaskId = null;
+        logger.error('Task failed', { taskId, error: data.error?.message });
       }
     });
 
     // 主动停止
-    sippProcessManager.on('stopped', () => {
-      const taskId = (sippProcessManager as any).currentTaskId;
+    sippProcessManager.on('stopped', (data) => {
+      const taskId = data.taskId;
       if (taskId) {
         this.broadcast('task:stopped', {
           taskId,
           timestamp: Date.now(),
         });
         logger.info('Task stopped', { taskId });
-        // 清除任务 ID
-        (sippProcessManager as any).currentTaskId = null;
       }
     });
   }
