@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Layout as AntLayout, Menu, theme, Badge, Space, Typography } from 'antd';
+import { Layout as AntLayout, Menu, theme, Badge, Space, Typography, Dropdown } from 'antd';
 import {
   FileTextOutlined,
   MenuFoldOutlined,
@@ -7,10 +7,12 @@ import {
   WifiOutlined,
   DatabaseOutlined,
   HistoryOutlined,
+  GlobalOutlined,
 } from '@ant-design/icons';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAppStore } from '@/stores/useAppStore';
 import { wsService } from '@/services/websocket';
+import { useTranslation } from 'react-i18next';
 
 const { Header, Sider, Content } = AntLayout;
 const { Text } = Typography;
@@ -23,6 +25,7 @@ const Layout: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { sidebarCollapsed, toggleSidebar, connectionStatus, setConnectionStatus } = useAppStore();
+  const { t, i18n } = useTranslation();
 
   const {
     token: { colorBgContainer },
@@ -31,9 +34,10 @@ const Layout: React.FC = () => {
   useEffect(() => {
     // 连接WebSocket - 动态获取后端地址
     // 在开发环境中，如果通过IP访问前端，则使用相同IP连接后端
+    const wsPort = import.meta.env.VITE_WS_PORT || '3000';
     const backendUrl = window.location.hostname === 'localhost'
-      ? 'http://localhost:3000'
-      : `http://${window.location.hostname}:3000`;
+      ? `http://localhost:${wsPort}`
+      : `http://${window.location.hostname}:${wsPort}`;
 
     wsService.connect(backendUrl);
 
@@ -51,23 +55,42 @@ const Layout: React.FC = () => {
   }, []);
 
   /**
+   * 切换语言
+   */
+  const changeLanguage = (lang: string) => {
+    i18n.changeLanguage(lang);
+    localStorage.setItem('language', lang);
+  };
+
+  /**
+   * 语言菜单
+   */
+  const languageMenu = {
+    items: [
+      { key: 'zh-CN', label: '中文' },
+      { key: 'en-US', label: 'English' },
+    ],
+    onClick: ({ key }: { key: string }) => changeLanguage(key),
+  };
+
+  /**
    * 菜单项配置
    */
   const menuItems = [
     {
       key: '/scenarios',
       icon: <FileTextOutlined />,
-      label: '场景管理',
+      label: t('menu.scenarios'),
     },
     {
       key: '/injection-files',
       icon: <DatabaseOutlined />,
-      label: '注入文件',
+      label: t('menu.injectionFiles'),
     },
     {
       key: '/task-history',
       icon: <HistoryOutlined />,
-      label: '任务历史',
+      label: t('menu.taskHistory'),
     },
   ];
 
@@ -100,13 +123,13 @@ const Layout: React.FC = () => {
   const getConnectionText = () => {
     switch (connectionStatus) {
       case 'connected':
-        return '已连接';
+        return t('connection.connected');
       case 'connecting':
-        return '连接中';
+        return t('connection.connecting');
       case 'error':
-        return '连接错误';
+        return t('connection.error');
       default:
-        return '未连接';
+        return t('connection.disconnected');
     }
   };
 
@@ -142,9 +165,12 @@ const Layout: React.FC = () => {
               style: { fontSize: '18px', padding: '0 24px', cursor: 'pointer' },
             })}
           </Space>
-          <Space>
+          <Space size="middle">
             <Badge color={getConnectionColor()} text={<Text>{getConnectionText()}</Text>} />
             <WifiOutlined style={{ fontSize: '20px', color: getConnectionColor() }} />
+            <Dropdown menu={languageMenu} placement="bottomRight">
+              <GlobalOutlined style={{ fontSize: '18px', cursor: 'pointer' }} />
+            </Dropdown>
           </Space>
         </Header>
         <Content

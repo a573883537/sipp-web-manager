@@ -13,13 +13,17 @@ class WebSocketService {
   /**
    * 连接到后端WebSocket
    */
-  connect(url: string = 'http://localhost:3000'): void {
+  connect(url?: string): void {
     if (this.socket?.connected) {
       console.warn('WebSocket already connected');
       return;
     }
 
-    this.socket = io(url, {
+    const wsPort = import.meta.env.VITE_WS_PORT || '3000';
+    const defaultUrl = `http://localhost:${wsPort}`;
+    const connectUrl = url || defaultUrl;
+
+    this.socket = io(connectUrl, {
       transports: ['websocket', 'polling'],
       reconnection: true,
       reconnectionDelay: 1000,

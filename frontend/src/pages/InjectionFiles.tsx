@@ -18,10 +18,9 @@ import {
   EditOutlined,
   DeleteOutlined,
   FileTextOutlined,
-  CheckCircleOutlined,
-  ExclamationCircleOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
+import { useTranslation } from 'react-i18next';
 import { apiService } from '@/services/api';
 
 const { TextArea } = Input;
@@ -43,11 +42,11 @@ interface InjectionFile {
  * 注入文件管理页面
  */
 const InjectionFiles: React.FC = () => {
+  const { t } = useTranslation();
   const [files, setFiles] = useState<InjectionFile[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [modalMode, setModalMode] = useState<'create' | 'edit'>('create');
-  const [currentFile, setCurrentFile] = useState<InjectionFile | null>(null);
   const [form] = Form.useForm();
 
   // 加载注入文件列表
@@ -55,12 +54,11 @@ const InjectionFiles: React.FC = () => {
     setLoading(true);
     try {
       const response: any = await apiService.listInjectionFiles();
-      console.log('API Response:', response); // 调试日志
       if (response.success && response.files) {
         setFiles(response.files);
       }
     } catch (error: any) {
-      message.error(`加载失败: ${error.message}`);
+      message.error(`${t('common.failed')}: ${error.message}`);
     } finally {
       setLoading(false);
     }
@@ -73,7 +71,6 @@ const InjectionFiles: React.FC = () => {
   // 打开创建/编辑对话框
   const handleOpenModal = (mode: 'create' | 'edit', file?: InjectionFile) => {
     setModalMode(mode);
-    setCurrentFile(file || null);
     if (file) {
       form.setFieldsValue({
         filename: file.filename,
@@ -92,18 +89,18 @@ const InjectionFiles: React.FC = () => {
       const values = await form.validateFields();
       const response = await apiService.saveInjectionFile(values);
       if (response.success) {
-        message.success('保存成功');
+        message.success(t('common.saveSuccess'));
         setModalVisible(false);
         form.resetFields();
         loadFiles();
       } else {
-        message.error(response.error || '保存失败');
+        message.error(response.error || t('common.saveFailed'));
       }
     } catch (error: any) {
       if (error.errorFields) {
-        message.error('请检查表单输入');
+        message.error(t('common.checkForm'));
       } else {
-        message.error(`保存失败: ${error.message}`);
+        message.error(`${t('common.saveFailed')}: ${error.message}`);
       }
     }
   };
@@ -113,20 +110,20 @@ const InjectionFiles: React.FC = () => {
     try {
       const response = await apiService.deleteInjectionFile(filename);
       if (response.success) {
-        message.success('删除成功');
+        message.success(t('common.deleteSuccess'));
         loadFiles();
       } else {
-        message.error(response.error || '删除失败');
+        message.error(response.error || t('common.deleteFailed'));
       }
     } catch (error: any) {
-      message.error(`删除失败: ${error.message}`);
+      message.error(`${t('common.deleteFailed')}: ${error.message}`);
     }
   };
 
   // 表格列定义
   const columns: ColumnsType<InjectionFile> = [
     {
-      title: '文件名',
+      title: t('injectionFiles.filename'),
       dataIndex: 'filename',
       key: 'filename',
       width: 200,
@@ -138,13 +135,13 @@ const InjectionFiles: React.FC = () => {
       ),
     },
     {
-      title: '描述',
+      title: t('common.description'),
       dataIndex: 'description',
       key: 'description',
       ellipsis: true,
     },
     {
-      title: '读取模式',
+      title: t('injectionFiles.readMode'),
       dataIndex: 'read_mode',
       key: 'read_mode',
       width: 120,
@@ -158,28 +155,28 @@ const InjectionFiles: React.FC = () => {
       },
     },
     {
-      title: '字段数',
+      title: t('injectionFiles.fieldCount'),
       dataIndex: 'field_count',
       key: 'field_count',
       width: 80,
       align: 'center',
     },
     {
-      title: '数据行数',
+      title: t('injectionFiles.rowCount'),
       dataIndex: 'row_count',
       key: 'row_count',
       width: 100,
       align: 'center',
     },
     {
-      title: '创建时间',
+      title: t('injectionFiles.createTime'),
       dataIndex: 'created_at',
       key: 'created_at',
       width: 180,
-      render: (text) => new Date(text).toLocaleString('zh-CN'),
+      render: (text) => new Date(text).toLocaleString(),
     },
     {
-      title: '操作',
+      title: t('common.actions'),
       key: 'action',
       width: 150,
       render: (_, record) => (
@@ -190,17 +187,17 @@ const InjectionFiles: React.FC = () => {
             icon={<EditOutlined />}
             onClick={() => handleOpenModal('edit', record)}
           >
-            编辑
+            {t('common.edit')}
           </Button>
           <Popconfirm
-            title="确认删除"
-            description="确定要删除这个注入文件吗？"
+            title={t('common.confirmDelete')}
+            description={t('injectionFiles.deleteFile')}
             onConfirm={() => handleDelete(record.filename)}
-            okText="确定"
-            cancelText="取消"
+            okText={t('common.confirm')}
+            cancelText={t('common.cancel')}
           >
             <Button type="link" size="small" danger icon={<DeleteOutlined />}>
-              删除
+              {t('common.delete')}
             </Button>
           </Popconfirm>
         </Space>
@@ -214,7 +211,7 @@ const InjectionFiles: React.FC = () => {
         title={
           <Space>
             <FileTextOutlined />
-            <span>注入文件管理</span>
+            <span>{t('injectionFiles.title')}</span>
           </Space>
         }
         extra={
@@ -223,7 +220,7 @@ const InjectionFiles: React.FC = () => {
             icon={<PlusOutlined />}
             onClick={() => handleOpenModal('create')}
           >
-            新建注入文件
+            {t('injectionFiles.newFile')}
           </Button>
         }
       >
@@ -331,13 +328,13 @@ To: <sip:[field2]@[remote_ip]>
           rowKey="id"
           pagination={{
             pageSize: 10,
-            showTotal: (total) => `共 ${total} 个文件`,
+            showTotal: (total) => `${total} ${t('injectionFiles.title').toLowerCase()}`,
           }}
         />
       </Card>
 
       <Modal
-        title={modalMode === 'create' ? '新建注入文件' : '编辑注入文件'}
+        title={modalMode === 'create' ? t('injectionFiles.newFile') : t('injectionFiles.editFile')}
         open={modalVisible}
         onOk={handleSave}
         onCancel={() => {
@@ -345,32 +342,32 @@ To: <sip:[field2]@[remote_ip]>
           form.resetFields();
         }}
         width={800}
-        okText="保存"
-        cancelText="取消"
+        okText={t('common.save')}
+        cancelText={t('common.cancel')}
       >
         <Form form={form} layout="vertical">
           <Form.Item
-            label="文件名"
+            label={t('injectionFiles.filename')}
             name="filename"
             rules={[
-              { required: true, message: '请输入文件名' },
-              { pattern: /^[\w-]+\.csv$/, message: '文件名必须以.csv结尾' },
+              { required: true, message: t('injectionFiles.pleaseInputFilename') },
+              { pattern: /^[\w-]+\.csv$/, message: 'Filename must end with .csv' },
             ]}
           >
-            <Input placeholder="例如: users_4000-4010.csv" disabled={modalMode === 'edit'} />
+            <Input placeholder="users_4000-4010.csv" disabled={modalMode === 'edit'} />
           </Form.Item>
-          <Form.Item label="描述" name="description">
-            <Input placeholder="文件描述（可选）" />
+          <Form.Item label={t('common.description')} name="description">
+            <Input placeholder={t('common.description')} />
           </Form.Item>
           <Form.Item
-            label="CSV内容"
+            label="CSV Content"
             name="content"
-            rules={[{ required: true, message: '请输入CSV内容' }]}
+            rules={[{ required: true, message: 'Please input CSV content' }]}
           >
             <TextArea
               rows={12}
               placeholder={`SEQUENTIAL
-# 主叫号码;密码;被叫号码
+# caller;password;callee
 1001;pass123;9000
 1002;pass456;9000
 1003;pass789;9000`}

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Card, Table, Button, Space, message, Modal, Form, InputNumber, Input, Select, Tag, Switch, Collapse, Popconfirm, List, Tooltip } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, EyeOutlined, PlayCircleOutlined, SettingOutlined, SaveOutlined, StarOutlined, StarFilled, AppstoreOutlined, AudioOutlined, ClockCircleOutlined, BugOutlined, ToolOutlined, CopyOutlined, FileTextOutlined } from '@ant-design/icons';
+import { useTranslation } from 'react-i18next';
 import { apiService } from '@/services/api';
 import { useAppStore } from '@/stores/useAppStore';
 import type { ScenarioFile, Scenario, TestTask } from '@/types';
@@ -20,6 +21,7 @@ interface ConfigTemplate {
  * 职责：管理SIPp XML场景文件
  */
 const Scenarios: React.FC = () => {
+  const { t } = useTranslation();
   const { scenarios, setScenarios, addTask, updateTask } = useAppStore();
   const [loading, setLoading] = useState(false);
   const [formVisible, setFormVisible] = useState(false);
@@ -68,7 +70,7 @@ const Scenarios: React.FC = () => {
     if (template) {
       startTestForm.setFieldsValue(template.config);
       setCurrentTemplateId(templateId);
-      message.success(`已应用模板: ${template.name}`);
+      message.success(`${t('common.apply')}: ${template.name}`);
     }
   };
 
@@ -82,10 +84,10 @@ const Scenarios: React.FC = () => {
     try {
       const config = startTestForm.getFieldsValue();
       await apiService.updateConfigTemplate(currentTemplateId, { config });
-      message.success('模板已更新');
+      message.success(t('template.templateUpdated'));
       loadTemplates();
     } catch (error: any) {
-      message.error(`更新失败: ${error.message}`);
+      message.error(`${t('common.failed')}: ${error.message}`);
     }
   };
 
@@ -94,7 +96,7 @@ const Scenarios: React.FC = () => {
    */
   const saveAsTemplate = async () => {
     if (!templateName.trim()) {
-      message.error('请输入模板名称');
+      message.error(t('template.pleaseInputTemplateName'));
       return;
     }
     try {
@@ -106,7 +108,7 @@ const Scenarios: React.FC = () => {
           description: templateDesc || undefined,
           config,
         });
-        message.success('模板更新成功');
+        message.success(t('template.templateUpdateSuccess'));
       } else {
         // 创建新模板
         await apiService.createConfigTemplate({
@@ -114,7 +116,7 @@ const Scenarios: React.FC = () => {
           description: templateDesc || undefined,
           config,
         });
-        message.success('模板保存成功');
+        message.success(t('template.templateSaveSuccess'));
       }
       setSaveTemplateVisible(false);
       setTemplateName('');
@@ -122,7 +124,7 @@ const Scenarios: React.FC = () => {
       setEditingTemplate(null);
       loadTemplates();
     } catch (error: any) {
-      message.error(`保存失败: ${error.message}`);
+      message.error(`${t('common.saveFailed')}: ${error.message}`);
     }
   };
 
@@ -143,10 +145,10 @@ const Scenarios: React.FC = () => {
   const setDefaultTemplate = async (id: number) => {
     try {
       await apiService.setDefaultConfigTemplate(id);
-      message.success('已设为默认模板');
+      message.success(t('template.setAsDefault'));
       loadTemplates();
     } catch (error: any) {
-      message.error(`设置失败: ${error.message}`);
+      message.error(`${t('common.failed')}: ${error.message}`);
     }
   };
 
@@ -156,10 +158,10 @@ const Scenarios: React.FC = () => {
   const deleteTemplate = async (id: number) => {
     try {
       await apiService.deleteConfigTemplate(id);
-      message.success('模板已删除');
+      message.success(t('template.templateDeleted'));
       loadTemplates();
     } catch (error: any) {
-      message.error(`删除失败: ${error.message}`);
+      message.error(`${t('common.deleteFailed')}: ${error.message}`);
     }
   };
 
@@ -174,7 +176,7 @@ const Scenarios: React.FC = () => {
         setScenarios(response.scenarios);
       }
     } catch (error: any) {
-      message.error(`加载场景失败: ${error.message}`);
+      message.error(`${t('common.failed')}: ${error.message}`);
     } finally {
       setLoading(false);
     }
@@ -205,18 +207,18 @@ const Scenarios: React.FC = () => {
    */
   const handleDelete = async (filename: string) => {
     Modal.confirm({
-      title: '确认删除',
-      content: `确定要删除场景 "${filename}" 吗？`,
-      okText: '删除',
+      title: t('common.confirmDelete'),
+      content: t('scenarios.confirmDeleteScenario', { name: filename }),
+      okText: t('common.delete'),
       okType: 'danger',
-      cancelText: '取消',
+      cancelText: t('common.cancel'),
       onOk: async () => {
         try {
           await apiService.deleteScenario(filename);
-          message.success('删除成功');
+          message.success(t('common.deleteSuccess'));
           loadScenarios();
         } catch (error: any) {
-          message.error(`删除失败: ${error.message}`);
+          message.error(`${t('common.deleteFailed')}: ${error.message}`);
         }
       },
     });
@@ -232,13 +234,13 @@ const Scenarios: React.FC = () => {
         const newFilename = filename.replace('.xml', '') + '-copy.xml';
         await apiService.saveScenario(newFilename, {
           ...response.scenario,
-          name: response.scenario.name + ' (副本)',
+          name: response.scenario.name + ' (copy)',
         });
-        message.success('副本创建成功');
+        message.success(t('scenarios.duplicateSuccess'));
         loadScenarios();
       }
     } catch (error: any) {
-      message.error(`创建副本失败: ${error.message}`);
+      message.error(`${t('common.failed')}: ${error.message}`);
     }
   };
 
@@ -248,11 +250,11 @@ const Scenarios: React.FC = () => {
   const handleBatchDelete = () => {
     if (selectedRowKeys.length === 0) return;
     Modal.confirm({
-      title: '确认批量删除',
-      content: `确定要删除选中的 ${selectedRowKeys.length} 个场景吗？`,
-      okText: '删除',
+      title: t('common.confirmBatchDelete'),
+      content: t('scenarios.confirmBatchDeleteScenarios', { count: selectedRowKeys.length }),
+      okText: t('common.delete'),
       okType: 'danger',
-      cancelText: '取消',
+      cancelText: t('common.cancel'),
       onOk: async () => {
         let success = 0, fail = 0;
         for (const key of selectedRowKeys) {
@@ -263,7 +265,7 @@ const Scenarios: React.FC = () => {
             fail++;
           }
         }
-        message.success(`删除完成：成功 ${success} 个${fail > 0 ? `，失败 ${fail} 个` : ''}`);
+        message.success(t('taskHistory.batchDeletePartial', { success, fail }));
         setSelectedRowKeys([]);
         loadScenarios();
       },
@@ -278,11 +280,11 @@ const Scenarios: React.FC = () => {
       const response = await apiService.getScenarioXml(filename);
       if (response.success && response.xml) {
         Modal.info({
-          title: `场景: ${filename}`,
+          title: `${t('menu.scenarios')}: ${filename}`,
           content: (
             <div>
-              <pre style={{ 
-                maxHeight: '500px', 
+              <pre style={{
+                maxHeight: '500px',
                 overflow: 'auto',
                 backgroundColor: '#f5f5f5',
                 padding: '12px',
@@ -299,7 +301,7 @@ const Scenarios: React.FC = () => {
         });
       }
     } catch (error: any) {
-      message.error(`加载场景失败: ${error.message}`);
+      message.error(`${t('common.failed')}: ${error.message}`);
     }
   };
 
@@ -325,7 +327,7 @@ const Scenarios: React.FC = () => {
         setFormVisible(true);
       }
     } catch (error: any) {
-      message.error(`加载场景失败: ${error.message}`);
+      message.error(`${t('common.failed')}: ${error.message}`);
     }
   };
 
@@ -339,12 +341,12 @@ const Scenarios: React.FC = () => {
         await apiService.deleteScenario(`${editingData.filename}.xml`);
       }
       await apiService.saveScenario(filename, scenario);
-      message.success(editingData ? '场景更新成功' : '场景创建成功');
+      message.success(editingData ? t('scenarios.scenarioUpdateSuccess') : t('scenarios.scenarioCreateSuccess'));
       setFormVisible(false);
       setEditingData(undefined);
       await loadScenarios();
     } catch (error: any) {
-      message.error(`保存场景失败: ${error.message}`);
+      message.error(`${t('common.saveFailed')}: ${error.message}`);
       throw error;
     }
   };
@@ -366,9 +368,9 @@ const Scenarios: React.FC = () => {
     // 默认配置
     const defaultConfig = {
       scenarioFile: scenario.filename,
-      remoteHost: '127.0.0.1',
-      remotePort: 5060,
-      localPort: 5070,
+      remoteHost: import.meta.env.VITE_DEFAULT_REMOTE_HOST || '127.0.0.1',
+      remotePort: parseInt(import.meta.env.VITE_DEFAULT_REMOTE_PORT || '5060'),
+      localPort: parseInt(import.meta.env.VITE_DEFAULT_LOCAL_PORT || '5061'),
       rate: 1,
       users: 10,
       limit: 10,
@@ -409,7 +411,7 @@ const Scenarios: React.FC = () => {
       const task: TestTask = {
         id: taskId,
         scenarioFile: values.scenarioFile,
-        scenarioName: selectedScenario?.name || '未知场景',
+        scenarioName: selectedScenario?.name || t('scenarios.unknownScenario'),
         status: TestTaskStatus.RUNNING,
         startTime: Date.now(),
         config: {
@@ -448,16 +450,16 @@ const Scenarios: React.FC = () => {
         ...values,
         taskId,
       });
-      message.success('测试已启动');
+      message.success(t('scenarios.testStarted'));
       setStartTestVisible(false);
       startTestForm.resetFields();
     } catch (error: any) {
-      message.error(`启动测试失败: ${error.message || '未知错误'}`);
+      message.error(`${t('scenarios.testStartFailed')}: ${error.message || t('scenarios.unknownError')}`);
       // 更新任务状态为失败
       if (taskId) {
         updateTask(taskId, {
           status: TestTaskStatus.FAILED,
-          error: error.message || '未知错误',
+          error: error.message || t('scenarios.unknownError'),
           endTime: Date.now(),
         });
       }
@@ -476,17 +478,17 @@ const Scenarios: React.FC = () => {
 
   const columns = [
     {
-      title: '场景名称',
+      title: t('scenarios.scenarioName'),
       dataIndex: 'name',
       key: 'name',
     },
     {
-      title: '文件名',
+      title: t('scenarios.filename'),
       dataIndex: 'filename',
       key: 'filename',
     },
     {
-      title: '操作',
+      title: t('common.actions'),
       key: 'action',
       render: (_: any, record: ScenarioFile) => (
         <Space size="small">
@@ -496,19 +498,19 @@ const Scenarios: React.FC = () => {
             icon={<PlayCircleOutlined />}
             onClick={() => handleStartTest(record)}
           >
-            启动
+            {t('scenarios.startTest')}
           </Button>
           <Button size="small" icon={<EyeOutlined />} onClick={() => handleView(record.filename)}>
-            查看
+            {t('common.view')}
           </Button>
           <Button size="small" icon={<EditOutlined />} onClick={() => handleEdit(record.filename)}>
-            编辑
+            {t('common.edit')}
           </Button>
           <Button size="small" icon={<CopyOutlined />} onClick={() => handleDuplicate(record.filename)}>
-            副本
+            {t('scenarios.duplicate')}
           </Button>
           <Button size="small" icon={<DeleteOutlined />} danger onClick={() => handleDelete(record.filename)}>
-            删除
+            {t('common.delete')}
           </Button>
         </Space>
       ),
@@ -521,20 +523,20 @@ const Scenarios: React.FC = () => {
         title={
           <Space>
             <FileTextOutlined />
-            <span>场景管理</span>
+            <span>{t('scenarios.title')}</span>
           </Space>
         }
         extra={
           <Space>
             {selectedRowKeys.length > 0 && (
               <Button danger icon={<DeleteOutlined />} onClick={handleBatchDelete}>
-                批量删除 ({selectedRowKeys.length})
+                {t('scenarios.batchDelete')} ({selectedRowKeys.length})
               </Button>
             )}
             <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
-              创建场景
+              {t('scenarios.newScenario')}
             </Button>
-            <Button onClick={loadScenarios}>刷新</Button>
+            <Button onClick={loadScenarios}>{t('common.refresh')}</Button>
           </Space>
         }
       >
@@ -550,7 +552,7 @@ const Scenarios: React.FC = () => {
           pagination={{
             pageSize: 10,
             showSizeChanger: true,
-            showTotal: (total) => `共 ${total} 个场景`,
+            showTotal: (total) => `${total} ${t('menu.scenarios').toLowerCase()}`,
           }}
         />
       </Card>
@@ -567,7 +569,7 @@ const Scenarios: React.FC = () => {
         title={
           <Space>
             <PlayCircleOutlined />
-            <span>启动测试：{selectedScenario?.name}</span>
+            <span>{t('startTest.title')}：{selectedScenario?.name}</span>
           </Space>
         }
         open={startTestVisible}
@@ -575,37 +577,37 @@ const Scenarios: React.FC = () => {
         onOk={handleStartTestSubmit}
         confirmLoading={startTestLoading}
         width={700}
-        okText="启动测试"
-        cancelText="取消"
+        okText={t('scenarios.startTest')}
+        cancelText={t('common.cancel')}
       >
         {/* 模板选择区域 */}
         <div style={{ marginBottom: 16, padding: 12, background: '#fafafa', borderRadius: 4 }}>
           <Space style={{ width: '100%' }}>
-            <span style={{ fontWeight: 'bold' }}>配置模板:</span>
+            <span style={{ fontWeight: 'bold' }}>{t('template.title')}:</span>
             <Select
               style={{ width: 200 }}
-              placeholder="选择模板"
+              placeholder={t('startTest.selectInjectionFile')}
               value={currentTemplateId}
               onChange={applyTemplate}
               allowClear
               onClear={() => setCurrentTemplateId(undefined)}
             >
-              {templates.map(t => (
-                <Select.Option key={t.id} value={t.id}>
-                  {t.is_default ? `${t.name} (默认)` : t.name}
+              {templates.map(tpl => (
+                <Select.Option key={tpl.id} value={tpl.id}>
+                  {tpl.is_default ? `${tpl.name} (${t('common.currentDefault')})` : tpl.name}
                 </Select.Option>
               ))}
             </Select>
             {currentTemplateId && (
               <Button size="small" icon={<SaveOutlined />} onClick={updateCurrentTemplate}>
-                更新模板
+                {t('template.updateCurrentTemplate')}
               </Button>
             )}
             <Button size="small" icon={<PlusOutlined />} onClick={() => { setEditingTemplate(null); setTemplateName(''); setTemplateDesc(''); setSaveTemplateVisible(true); }}>
-              另存为
+              {t('template.saveAsTemplate')}
             </Button>
             <Button size="small" icon={<SettingOutlined />} onClick={() => setManageTemplateVisible(true)}>
-              管理
+              {t('common.manage')}
             </Button>
           </Space>
         </div>
@@ -614,9 +616,9 @@ const Scenarios: React.FC = () => {
           form={startTestForm}
           layout="vertical"
           initialValues={{
-            remoteHost: '127.0.0.1',
-            remotePort: 5060,
-            localPort: 5070,
+            remoteHost: import.meta.env.VITE_DEFAULT_REMOTE_HOST || '127.0.0.1',
+            remotePort: parseInt(import.meta.env.VITE_DEFAULT_REMOTE_PORT || '5060'),
+            localPort: parseInt(import.meta.env.VITE_DEFAULT_LOCAL_PORT || '5061'),
             rate: 1,
             users: 10,
             limit: 10,
@@ -637,22 +639,22 @@ const Scenarios: React.FC = () => {
             items={[
               {
                 key: 'basic',
-                label: <><AppstoreOutlined /> 基础配置</>,
+                label: <><AppstoreOutlined /> {t('startTest.basicConfig')}</>,
                 children: (
                   <>
                     <Form.Item
                       name="remoteHost"
-                      label="远程服务器地址"
-                      rules={[{ required: true, message: '请输入远程服务器地址' }]}
+                      label={t('startTest.remoteHost')}
+                      rules={[{ required: true, message: t('startTest.pleaseInputRemoteHost') }]}
                     >
-                      <Input placeholder="例如: 192.168.21.88" />
+                      <Input placeholder="192.168.21.88" />
                     </Form.Item>
 
                     <Space style={{ width: '100%' }} size="large">
                       <Form.Item
                         name="remotePort"
-                        label="远程端口"
-                        rules={[{ required: true, message: '请输入远程端口' }]}
+                        label={t('startTest.remotePort')}
+                        rules={[{ required: true, message: t('startTest.pleaseInputRemotePort') }]}
                         style={{ flex: 1 }}
                       >
                         <InputNumber min={1} max={65535} placeholder="5060" style={{ width: '100%' }} />
@@ -660,8 +662,8 @@ const Scenarios: React.FC = () => {
 
                       <Form.Item
                         name="localPort"
-                        label="本地端口"
-                        rules={[{ required: true, message: '请输入本地端口' }]}
+                        label={t('startTest.localPort')}
+                        rules={[{ required: true, message: t('startTest.pleaseInputLocalPort') }]}
                         style={{ flex: 1 }}
                       >
                         <InputNumber min={1} max={65535} placeholder="5070" style={{ width: '100%' }} />
@@ -669,8 +671,8 @@ const Scenarios: React.FC = () => {
 
                       <Form.Item
                         name="transport"
-                        label="传输协议"
-                        rules={[{ required: true, message: '请选择传输协议' }]}
+                        label={t('startTest.transport')}
+                        rules={[{ required: true, message: t('startTest.pleaseSelectTransport') }]}
                         style={{ flex: 1 }}
                       >
                         <Select>
@@ -683,13 +685,12 @@ const Scenarios: React.FC = () => {
 
                     <Form.Item
                       name="injectionFile"
-                      label="注入文件"
-                      tooltip="选择CSV注入文件，用于动态数据（如用户名密码）"
+                      label={t('startTest.injectionFile')}
                     >
-                      <Select placeholder="选择注入文件（可选）" allowClear showSearch optionFilterProp="children">
+                      <Select placeholder={t('startTest.selectInjectionFile')} allowClear showSearch optionFilterProp="children">
                         {injectionFiles.map((f: any) => (
                           <Select.Option key={f.filename} value={f.filename}>
-                            {f.filename} ({f.row_count} 行)
+                            {f.filename} ({f.row_count} rows)
                           </Select.Option>
                         ))}
                       </Select>
@@ -699,14 +700,14 @@ const Scenarios: React.FC = () => {
               },
               {
                 key: 'call',
-                label: <><ClockCircleOutlined /> 呼叫控制</>,
+                label: <><ClockCircleOutlined /> {t('startTest.rateConfig')}</>,
                 children: (
                   <>
                     <Space style={{ width: '100%' }} size="large">
                       <Form.Item
                         name="rate"
-                        label="呼叫速率 (calls/sec)"
-                        rules={[{ required: true, message: '请输入呼叫速率' }]}
+                        label={t('startTest.rate')}
+                        rules={[{ required: true, message: t('startTest.pleaseInputRate') }]}
                         style={{ flex: 1 }}
                       >
                         <InputNumber min={0} max={10000} placeholder="1" style={{ width: '100%' }} />
@@ -714,8 +715,8 @@ const Scenarios: React.FC = () => {
 
                       <Form.Item
                         name="users"
-                        label="并发用户数"
-                        rules={[{ required: true, message: '请输入并发用户数' }]}
+                        label={t('startTest.users')}
+                        rules={[{ required: true, message: t('startTest.pleaseInputUsers') }]}
                         style={{ flex: 1 }}
                       >
                         <InputNumber min={1} max={100000} placeholder="10" style={{ width: '100%' }} />
@@ -723,9 +724,8 @@ const Scenarios: React.FC = () => {
 
                       <Form.Item
                         name="limit"
-                        label="呼叫总数限制"
-                        tooltip="设置最大呼叫次数，达到后自动停止"
-                        rules={[{ required: true, message: '请输入呼叫限制' }]}
+                        label={t('startTest.limit')}
+                        rules={[{ required: true, message: t('startTest.pleaseInputLimit') }]}
                         style={{ flex: 1 }}
                       >
                         <InputNumber min={0} max={1000000} placeholder="10" style={{ width: '100%' }} />
@@ -734,8 +734,7 @@ const Scenarios: React.FC = () => {
 
                     <Form.Item
                       name="timeout"
-                      label="超时时间 (毫秒)"
-                      tooltip="测试运行的最长时间，超时后自动停止。设为0表示不限制"
+                      label={t('startTest.timeout')}
                     >
                       <InputNumber min={0} step={1000} placeholder="120000" style={{ width: '100%' }} />
                     </Form.Item>
@@ -744,34 +743,34 @@ const Scenarios: React.FC = () => {
               },
               {
                 key: 'media',
-                label: <><AudioOutlined /> 媒体配置</>,
+                label: <><AudioOutlined /> {t('startTest.rtpConfig')}</>,
                 children: (
                   <>
                     <Space style={{ width: '100%' }} size="large">
-                      <Form.Item name="minRtpPort" label="RTP 起始端口" style={{ flex: 1 }}>
+                      <Form.Item name="minRtpPort" label="RTP Min Port" style={{ flex: 1 }}>
                         <InputNumber min={1024} max={65535} placeholder="6000" style={{ width: '100%' }} />
                       </Form.Item>
-                      <Form.Item name="maxRtpPort" label="RTP 结束端口" style={{ flex: 1 }}>
+                      <Form.Item name="maxRtpPort" label="RTP Max Port" style={{ flex: 1 }}>
                         <InputNumber min={1024} max={65535} placeholder="6100" style={{ width: '100%' }} />
                       </Form.Item>
                     </Space>
 
                     <Space style={{ width: '100%' }} size="large">
-                      <Form.Item name="mediaIpType" label="媒体 IP 类型" style={{ flex: 1 }}>
-                        <Select placeholder="自动检测" allowClear>
+                      <Form.Item name="mediaIpType" label="Media IP Type" style={{ flex: 1 }}>
+                        <Select placeholder="Auto" allowClear>
                           <Select.Option value="4">IPv4</Select.Option>
                           <Select.Option value="6">IPv6</Select.Option>
                         </Select>
                       </Form.Item>
-                      <Form.Item name="mediaIp" label="媒体 IP 地址" tooltip="留空使用本地IP" style={{ flex: 1 }}>
-                        <Input placeholder="留空使用本地IP" />
+                      <Form.Item name="mediaIp" label="Media IP" style={{ flex: 1 }}>
+                        <Input placeholder="Auto" />
                       </Form.Item>
                     </Space>
 
                     <Form.Item name="enableRtpEcho" label="RTP Echo">
                       <Select>
-                        <Select.Option value={false}>禁用</Select.Option>
-                        <Select.Option value={true}>启用</Select.Option>
+                        <Select.Option value={false}>Off</Select.Option>
+                        <Select.Option value={true}>On</Select.Option>
                       </Select>
                     </Form.Item>
                   </>
@@ -779,14 +778,13 @@ const Scenarios: React.FC = () => {
               },
               {
                 key: 'scenario',
-                label: <><ToolOutlined /> 场景选项</>,
+                label: <><ToolOutlined /> {t('startTest.advancedConfig')}</>,
                 children: (
                   <Form.Item
                     name="oocsf"
-                    label="会话外场景文件 (oocsf)"
-                    tooltip="用于处理会话外的 NOTIFY/OPTIONS 等消息"
+                    label={t('startTest.oocsf')}
                   >
-                    <Select placeholder="选择会话外场景文件（可选）" allowClear showSearch optionFilterProp="children">
+                    <Select placeholder={t('startTest.selectOocsf')} allowClear showSearch optionFilterProp="children">
                       {scenarios.filter(s => s.filename !== selectedScenario?.filename).map(s => (
                         <Select.Option key={s.filename} value={s.filename}>
                           {s.name} ({s.filename})
@@ -798,43 +796,43 @@ const Scenarios: React.FC = () => {
               },
               {
                 key: 'trace',
-                label: <><BugOutlined /> 日志追踪</>,
+                label: <><BugOutlined /> {t('startTest.traceConfig')}</>,
                 children: (
                   <Space wrap style={{ width: '100%' }}>
-                    <Form.Item name="traceMsg" label="消息追踪" valuePropName="checked" style={{ marginBottom: 8 }}>
-                      <Switch checkedChildren="开" unCheckedChildren="关" />
+                    <Form.Item name="traceMsg" label={t('startTest.traceMsg')} valuePropName="checked" style={{ marginBottom: 8 }}>
+                      <Switch />
                     </Form.Item>
-                    <Form.Item name="traceErr" label="错误追踪" valuePropName="checked" style={{ marginBottom: 8 }}>
-                      <Switch checkedChildren="开" unCheckedChildren="关" />
+                    <Form.Item name="traceErr" label={t('startTest.traceErr')} valuePropName="checked" style={{ marginBottom: 8 }}>
+                      <Switch />
                     </Form.Item>
-                    <Form.Item name="traceCalldebug" label="呼叫调试" valuePropName="checked" style={{ marginBottom: 8 }}>
-                      <Switch checkedChildren="开" unCheckedChildren="关" />
+                    <Form.Item name="traceCalldebug" label={t('startTest.traceCalldebug')} valuePropName="checked" style={{ marginBottom: 8 }}>
+                      <Switch />
                     </Form.Item>
-                    <Form.Item name="traceShortmsg" label="短消息" valuePropName="checked" style={{ marginBottom: 8 }}>
-                      <Switch checkedChildren="开" unCheckedChildren="关" />
+                    <Form.Item name="traceShortmsg" label={t('startTest.traceShortmsg')} valuePropName="checked" style={{ marginBottom: 8 }}>
+                      <Switch />
                     </Form.Item>
-                    <Form.Item name="traceLogs" label="日志" valuePropName="checked" style={{ marginBottom: 8 }}>
-                      <Switch checkedChildren="开" unCheckedChildren="关" />
+                    <Form.Item name="traceLogs" label={t('startTest.traceLogs')} valuePropName="checked" style={{ marginBottom: 8 }}>
+                      <Switch />
                     </Form.Item>
-                    <Form.Item name="traceRtt" label="往返时间" valuePropName="checked" style={{ marginBottom: 8 }}>
-                      <Switch checkedChildren="开" unCheckedChildren="关" />
+                    <Form.Item name="traceRtt" label={t('startTest.traceRtt')} valuePropName="checked" style={{ marginBottom: 8 }}>
+                      <Switch />
                     </Form.Item>
                   </Space>
                 ),
               },
               {
                 key: 'advanced',
-                label: <><SettingOutlined /> 高级选项</>,
+                label: <><SettingOutlined /> {t('startTest.advancedConfig')}</>,
                 children: (
                   <Space direction="vertical" style={{ width: '100%' }}>
-                    <Form.Item name="localIp" label="本地IP地址" tooltip="绑定的本地IP地址 (-i)">
-                      <Input placeholder="留空使用默认" />
+                    <Form.Item name="localIp" label="Local IP">
+                      <Input placeholder="Auto" />
                     </Form.Item>
-                    <Form.Item name="bindLocal" label="绑定本地端口" valuePropName="checked" tooltip="强制绑定本地端口 (-bind_local)">
-                      <Switch checkedChildren="开" unCheckedChildren="关" />
+                    <Form.Item name="bindLocal" label="Bind Local" valuePropName="checked">
+                      <Switch />
                     </Form.Item>
-                    <Form.Item name="rsa" label="远程发送地址" tooltip="指定远程发送地址 (-rsa)">
-                      <Input placeholder="host:port 格式" />
+                    <Form.Item name="rsa" label="Remote Send Address">
+                      <Input placeholder="host:port" />
                     </Form.Item>
                   </Space>
                 ),
@@ -846,26 +844,26 @@ const Scenarios: React.FC = () => {
 
       {/* 保存模板弹窗 */}
       <Modal
-        title={editingTemplate ? '编辑配置模板' : '保存为配置模板'}
+        title={editingTemplate ? t('template.editTemplate') : t('template.saveAsTemplate')}
         open={saveTemplateVisible}
         onOk={saveAsTemplate}
         onCancel={() => { setSaveTemplateVisible(false); setTemplateName(''); setTemplateDesc(''); setEditingTemplate(null); }}
-        okText="保存"
-        cancelText="取消"
+        okText={t('common.save')}
+        cancelText={t('common.cancel')}
       >
         <Form layout="vertical">
-          <Form.Item label="模板名称" required>
+          <Form.Item label={t('template.templateName')} required>
             <Input
               value={templateName}
               onChange={e => setTemplateName(e.target.value)}
-              placeholder="输入模板名称"
+              placeholder={t('template.pleaseInputTemplateName')}
             />
           </Form.Item>
-          <Form.Item label="模板描述">
+          <Form.Item label={t('template.templateDescription')}>
             <Input.TextArea
               value={templateDesc}
               onChange={e => setTemplateDesc(e.target.value)}
-              placeholder="输入模板描述（可选）"
+              placeholder={t('template.templateDescription')}
               rows={2}
             />
           </Form.Item>
@@ -874,7 +872,7 @@ const Scenarios: React.FC = () => {
 
       {/* 模板管理弹窗 */}
       <Modal
-        title="管理配置模板"
+        title={t('template.title')}
         open={manageTemplateVisible}
         onCancel={() => setManageTemplateVisible(false)}
         footer={null}
@@ -882,18 +880,18 @@ const Scenarios: React.FC = () => {
       >
         <List
           dataSource={templates}
-          locale={{ emptyText: '暂无模板' }}
+          locale={{ emptyText: t('template.noTemplate') }}
           renderItem={(item) => (
             <List.Item
               actions={[
-                <Tooltip title={item.is_default ? '当前默认' : '设为默认'} key="default">
+                <Tooltip title={item.is_default ? t('common.currentDefault') : t('common.setDefault')} key="default">
                   <Button
                     type="text"
                     icon={item.is_default ? <StarFilled style={{ color: '#faad14' }} /> : <StarOutlined />}
                     onClick={() => setDefaultTemplate(item.id)}
                   />
                 </Tooltip>,
-                <Tooltip title="编辑" key="edit">
+                <Tooltip title={t('common.edit')} key="edit">
                   <Button
                     type="text"
                     icon={<EditOutlined />}
@@ -902,10 +900,10 @@ const Scenarios: React.FC = () => {
                 </Tooltip>,
                 <Popconfirm
                   key="delete"
-                  title="确认删除此模板？"
+                  title={t('common.confirmDelete')}
                   onConfirm={() => deleteTemplate(item.id)}
-                  okText="删除"
-                  cancelText="取消"
+                  okText={t('common.delete')}
+                  cancelText={t('common.cancel')}
                 >
                   <Button type="text" danger icon={<DeleteOutlined />} />
                 </Popconfirm>,
@@ -915,10 +913,10 @@ const Scenarios: React.FC = () => {
                 title={
                   <Space>
                     {item.name}
-                    {item.is_default && <Tag color="blue">默认</Tag>}
+                    {item.is_default && <Tag color="blue">{t('common.currentDefault')}</Tag>}
                   </Space>
                 }
-                description={item.description || '无描述'}
+                description={item.description || t('common.noDescription')}
               />
             </List.Item>
           )}

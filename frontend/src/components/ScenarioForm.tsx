@@ -13,7 +13,6 @@ import {
   Divider,
   Tooltip,
   Dropdown,
-  Card,
 } from 'antd';
 import type { MenuProps } from 'antd';
 import {

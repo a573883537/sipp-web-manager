@@ -16,6 +16,7 @@ import {
   BarChartOutlined,
 } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
+import { useTranslation } from 'react-i18next';
 import { useAppStore } from '@/stores/useAppStore';
 import { TestTaskStatus, type TestTask } from '@/types';
 import { apiService } from '@/services/api';
@@ -29,6 +30,7 @@ const { Text } = Typography;
  * 显示测试任务的历史记录，区分正在进行和已完成的任务
  */
 const TaskHistoryPage: React.FC = () => {
+  const { t } = useTranslation();
   const { tasks, updateTask, setTasks } = useAppStore();
   const [stopLoading, setStopLoading] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -71,11 +73,11 @@ const TaskHistoryPage: React.FC = () => {
     try {
       setCommandLoading(taskId);
       await apiService.sendTaskCommand(taskId, command, args);
-      message.success(`命令 ${command} 已发送`);
+      message.success(t('taskHistory.commandSent', { command }));
       // 刷新进程状态
       await fetchProcessStatus();
     } catch (error: any) {
-      message.error(`发送命令失败: ${error.message}`);
+      message.error(`${t('taskHistory.commandFailed')}: ${error.message}`);
     } finally {
       setCommandLoading(null);
     }
@@ -93,25 +95,25 @@ const TaskHistoryPage: React.FC = () => {
       {
         key: 'pause',
         icon: <PauseCircleOutlined />,
-        label: isPaused ? '恢复测试' : '暂停测试',
+        label: isPaused ? t('taskHistory.resume') : t('taskHistory.pause'),
         onClick: () => sendCommand(task.id, 'pause'),
       },
       {
         key: 'increaseRate',
         icon: <PlusOutlined />,
-        label: `增加速率 (当前: ${currentRate})`,
+        label: `${t('taskHistory.increaseRate')} (${t('taskHistory.currentRate')}: ${currentRate})`,
         onClick: () => sendCommand(task.id, 'increaseRate'),
       },
       {
         key: 'decreaseRate',
         icon: <MinusOutlined />,
-        label: `减少速率 (当前: ${currentRate})`,
+        label: `${t('taskHistory.decreaseRate')} (${t('taskHistory.currentRate')}: ${currentRate})`,
         onClick: () => sendCommand(task.id, 'decreaseRate'),
       },
       {
         key: 'setRate',
         icon: <ControlOutlined />,
-        label: '设置速率...',
+        label: `${t('taskHistory.setRate')}...`,
         onClick: () => {
           setRateModalTask(task);
           setNewRate(currentRate);
@@ -122,23 +124,23 @@ const TaskHistoryPage: React.FC = () => {
       {
         key: 'quit',
         icon: <StopOutlined />,
-        label: '优雅停止 (等待完成)',
+        label: t('taskHistory.gracefulStop'),
         onClick: () => sendCommand(task.id, 'quit'),
       },
       { type: 'divider' },
       {
         key: 'dumpScreen',
         icon: <CameraOutlined />,
-        label: '截取屏幕',
+        label: t('taskHistory.dumpScreen'),
         onClick: async () => {
           await sendCommand(task.id, 'dumpScreen');
-          message.success('截图已生成，点击"查看截图"查看');
+          message.success(t('taskHistory.screenshotGenerated'));
         },
       },
       {
         key: 'viewScreen',
         icon: <CameraOutlined />,
-        label: '查看截图',
+        label: t('taskHistory.viewScreen'),
         onClick: () => viewScreen(task.id),
       },
     ];
@@ -150,16 +152,15 @@ const TaskHistoryPage: React.FC = () => {
   const viewScreen = async (taskId: string) => {
     try {
       const response = await apiService.getTaskScreen(taskId);
-      console.log('Screen response:', response);
       if (response.success && response.content) {
         setScreenContent(response.content);
         setScreenTime(new Date().toLocaleString());
         setScreenModalVisible(true);
       } else {
-        message.warning('暂无屏幕截图');
+        message.warning(t('taskHistory.noScreenshot'));
       }
     } catch (error: any) {
-      message.error(`获取截图失败: ${error.message}`);
+      message.error(`${t('taskHistory.getScreenFailed')}: ${error.message}`);
     }
   };
 
@@ -185,8 +186,8 @@ const TaskHistoryPage: React.FC = () => {
         radius: ['40%', '70%'],
         label: { show: true, formatter: '{b}: {c}' },
         data: [
-          { value: successCalls, name: '成功', itemStyle: { color: '#52c41a' } },
-          { value: failedCalls, name: '失败', itemStyle: { color: '#ff4d4f' } },
+          { value: successCalls, name: t('taskHistory.successCalls'), itemStyle: { color: '#52c41a' } },
+          { value: failedCalls, name: t('taskHistory.failedCalls'), itemStyle: { color: '#ff4d4f' } },
         ],
       }],
     };
@@ -231,7 +232,7 @@ const TaskHistoryPage: React.FC = () => {
             apiService.updateTaskHistory(task.id, {
               status: 'FAILED',
               end_time: Date.now(),
-              error: '进程异常终止',
+              error: 'Process terminated unexpectedly',
             }).catch(console.error);
           }
 
@@ -244,37 +245,20 @@ const TaskHistoryPage: React.FC = () => {
             stats: task.stats,
             startTime: task.start_time,
             endTime: task.end_time || (status !== TestTaskStatus.RUNNING ? Date.now() : undefined),
-            error: task.error || (status === TestTaskStatus.FAILED && !task.error ? '进程异常终止' : undefined),
+            error: task.error || (status === TestTaskStatus.FAILED && !task.error ? 'Process terminated unexpectedly' : undefined),
           };
         });
 
         // 完全替换 store 中的任务列表
         setTasks(dbTasks);
         if (showMessage) {
-          message.success(`已加载 ${dbTasks.length} 条任务历史`);
+          message.success(t('taskHistory.loadSuccess', { count: dbTasks.length }));
         }
       }
     } catch (error: any) {
-      message.error(`加载任务历史失败: ${error.message}`);
+      message.error(`${t('taskHistory.loadFailed')}: ${error.message}`);
     } finally {
       setLoading(false);
-    }
-  };
-
-  /**
-   * 更新运行中任务的实时统计
-   */
-  const updateRunningTasksStats = async () => {
-    const runningTasks = tasks.filter(t => t.status === TestTaskStatus.RUNNING);
-    for (const task of runningTasks) {
-      try {
-        const response = await apiService.getTaskStats(task.id);
-        if (response.success && response.stats) {
-          updateTask(task.id, { stats: response.stats });
-        }
-      } catch (error) {
-        // 忽略错误
-      }
     }
   };
 
@@ -284,11 +268,29 @@ const TaskHistoryPage: React.FC = () => {
   useEffect(() => {
     loadTaskHistory();
     fetchProcessStatus();
-
-    // 定时更新运行中任务的统计数据
-    const statsInterval = setInterval(updateRunningTasksStats, 3000);
-    return () => clearInterval(statsInterval);
   }, []);
+
+  /**
+   * 定时更新运行中任务的统计数据
+   */
+  useEffect(() => {
+    const updateStats = async () => {
+      const runningTasks = tasks.filter(t => t.status === TestTaskStatus.RUNNING);
+      for (const task of runningTasks) {
+        try {
+          const response = await apiService.getTaskStats(task.id);
+          if (response.success && response.stats) {
+            updateTask(task.id, { stats: response.stats });
+          }
+        } catch (error) {
+          // 忽略错误
+        }
+      }
+    };
+
+    const statsInterval = setInterval(updateStats, 3000);
+    return () => clearInterval(statsInterval);
+  }, [tasks, updateTask]);
 
   /**
    * 格式化持续时间
@@ -300,11 +302,11 @@ const TaskHistoryPage: React.FC = () => {
     const hours = Math.floor(minutes / 60);
 
     if (hours > 0) {
-      return `${hours}小时${minutes % 60}分钟`;
+      return `${hours}h ${minutes % 60}m`;
     } else if (minutes > 0) {
-      return `${minutes}分钟${seconds % 60}秒`;
+      return `${minutes}m ${seconds % 60}s`;
     } else {
-      return `${seconds}秒`;
+      return `${seconds}s`;
     }
   };
 
@@ -316,22 +318,22 @@ const TaskHistoryPage: React.FC = () => {
       [TestTaskStatus.RUNNING]: {
         color: 'processing',
         icon: <PlayCircleOutlined />,
-        text: '运行中',
+        text: t('status.running'),
       },
       [TestTaskStatus.COMPLETED]: {
         color: 'success',
         icon: <CheckCircleOutlined />,
-        text: '已完成',
+        text: t('status.completed'),
       },
       [TestTaskStatus.FAILED]: {
         color: 'error',
         icon: <CloseCircleOutlined />,
-        text: '失败',
+        text: t('status.failed'),
       },
       [TestTaskStatus.STOPPED]: {
         color: 'default',
         icon: <StopOutlined />,
-        text: '已停止',
+        text: t('status.stopped'),
       },
     };
 
@@ -355,22 +357,22 @@ const TaskHistoryPage: React.FC = () => {
    */
   const handleStopTask = async (task: TestTask) => {
     Modal.confirm({
-      title: '确认停止',
-      content: `确定要停止任务 "${task.scenarioName}" 吗？`,
-      okText: '停止',
+      title: t('taskHistory.confirmStop'),
+      content: t('taskHistory.confirmStopTask', { name: task.scenarioName }),
+      okText: t('taskHistory.stop'),
       okType: 'danger',
-      cancelText: '取消',
+      cancelText: t('common.cancel'),
       onOk: async () => {
         try {
           setStopLoading(task.id);
           await apiService.stopSippTest(task.id, false);
-          message.success('任务已停止');
+          message.success(t('taskHistory.taskStopped'));
           updateTask(task.id, {
             status: TestTaskStatus.STOPPED,
             endTime: Date.now(),
           });
         } catch (error: any) {
-          message.error(`停止任务失败: ${error.message}`);
+          message.error(`${t('taskHistory.stopFailed')}: ${error.message}`);
         } finally {
           setStopLoading(null);
         }
@@ -385,10 +387,10 @@ const TaskHistoryPage: React.FC = () => {
     try {
       setDeleteLoading(taskId);
       await apiService.deleteTaskHistory(taskId);
-      message.success('任务已删除');
+      message.success(t('taskHistory.taskDeleted'));
       await loadTaskHistory();
     } catch (error: any) {
-      message.error(`删除任务失败: ${error.message}`);
+      message.error(`${t('taskHistory.deleteFailed')}: ${error.message}`);
     } finally {
       setDeleteLoading(null);
     }
@@ -401,11 +403,11 @@ const TaskHistoryPage: React.FC = () => {
     if (selectedRowKeys.length === 0) return;
 
     Modal.confirm({
-      title: '确认批量删除',
-      content: `确定要删除选中的 ${selectedRowKeys.length} 个任务吗？`,
-      okText: '删除',
+      title: t('common.confirmBatchDelete'),
+      content: t('taskHistory.confirmBatchDeleteTasks', { count: selectedRowKeys.length }),
+      okText: t('common.delete'),
       okType: 'danger',
-      cancelText: '取消',
+      cancelText: t('common.cancel'),
       onOk: async () => {
         try {
           setBatchDeleteLoading(true);
@@ -422,15 +424,15 @@ const TaskHistoryPage: React.FC = () => {
           }
 
           if (failCount === 0) {
-            message.success(`成功删除 ${successCount} 个任务`);
+            message.success(t('taskHistory.batchDeleteSuccess', { success: successCount }));
           } else {
-            message.warning(`删除完成：成功 ${successCount} 个，失败 ${failCount} 个`);
+            message.warning(t('taskHistory.batchDeletePartial', { success: successCount, fail: failCount }));
           }
 
           setSelectedRowKeys([]);
           await loadTaskHistory();
         } catch (error: any) {
-          message.error(`批量删除失败: ${error.message}`);
+          message.error(`${t('taskHistory.batchDeleteFailed')}: ${error.message}`);
         } finally {
           setBatchDeleteLoading(false);
         }
@@ -443,7 +445,7 @@ const TaskHistoryPage: React.FC = () => {
    */
   const runningColumns: ColumnsType<TestTask> = [
     {
-      title: '场景名称',
+      title: t('taskHistory.scenarioName'),
       dataIndex: 'scenarioName',
       key: 'scenarioName',
       width: 200,
@@ -457,28 +459,28 @@ const TaskHistoryPage: React.FC = () => {
       ),
     },
     {
-      title: '测试配置',
+      title: t('taskHistory.testConfig'),
       key: 'config',
       width: 250,
       render: (_: any, record: TestTask) => (
         <Space direction="vertical" size={0}>
           <Text style={{ fontSize: '12px' }}>
-            <ClockCircleOutlined /> 速率: {record.config.rate} calls/s
+            <ClockCircleOutlined /> {t('taskHistory.callRate')}: {record.config.rate} calls/s
           </Text>
           <Text style={{ fontSize: '12px' }}>
-            并发: {record.config.users} | 限制: {record.config.limit || '无限'}
+            {t('startTest.users')}: {record.config.users} | {t('startTest.limit')}: {record.config.limit || '∞'}
           </Text>
           <Text style={{ fontSize: '12px' }}>
-            目标: {record.config.remoteHost}:{record.config.remotePort}
+            {record.config.remoteHost}:{record.config.remotePort}
           </Text>
           <Text style={{ fontSize: '12px' }}>
-            协议: {record.config.transport.toUpperCase()}
+            {record.config.transport.toUpperCase()}
           </Text>
         </Space>
       ),
     },
     {
-      title: '统计数据',
+      title: t('taskHistory.statistics'),
       key: 'stats',
       width: 180,
       render: (_: any, record: TestTask) => {
@@ -488,20 +490,20 @@ const TaskHistoryPage: React.FC = () => {
 
         const { totalCalls, successCalls, failedCalls, successRate } = record.stats;
         return (
-          <Tooltip title="点击查看详情">
+          <Tooltip title={t('taskHistory.clickToViewDetail')}>
             <div onClick={() => viewStats(record)} style={{ cursor: 'pointer' }}>
               <Space direction="vertical" size={4} style={{ width: '100%' }}>
                 <div>
                   <Text style={{ fontSize: '12px' }}>
-                    总呼叫: {totalCalls}
+                    {t('taskHistory.totalCalls')}: {totalCalls}
                   </Text>
                 </div>
                 <div>
                   <Text style={{ fontSize: '12px', color: '#52c41a' }}>
-                    成功: {successCalls}
+                    {t('taskHistory.successCalls')}: {successCalls}
                   </Text>
                   <Text style={{ fontSize: '12px', color: '#ff4d4f', marginLeft: 8 }}>
-                    失败: {failedCalls}
+                    {t('taskHistory.failedCalls')}: {failedCalls}
                   </Text>
                 </div>
                 <Progress
@@ -517,7 +519,7 @@ const TaskHistoryPage: React.FC = () => {
       },
     },
     {
-      title: '开始时间',
+      title: t('taskHistory.startTime'),
       key: 'startTime',
       width: 150,
       render: (_: any, record: TestTask) => (
@@ -529,7 +531,7 @@ const TaskHistoryPage: React.FC = () => {
       ),
     },
     {
-      title: '运行时长',
+      title: t('taskHistory.duration'),
       key: 'duration',
       width: 120,
       render: (_: any, record: TestTask) => (
@@ -539,7 +541,7 @@ const TaskHistoryPage: React.FC = () => {
       ),
     },
     {
-      title: '操作',
+      title: t('common.actions'),
       key: 'action',
       width: 180,
       render: (_: any, record: TestTask) => (
@@ -553,7 +555,7 @@ const TaskHistoryPage: React.FC = () => {
               icon={<ControlOutlined />}
               loading={commandLoading === record.id}
             >
-              控制
+              {t('taskHistory.control')}
             </Button>
           </Dropdown>
           <Button
@@ -563,7 +565,7 @@ const TaskHistoryPage: React.FC = () => {
             loading={stopLoading === record.id}
             onClick={() => handleStopTask(record)}
           >
-            停止
+            {t('taskHistory.stop')}
           </Button>
         </Space>
       ),
@@ -575,7 +577,7 @@ const TaskHistoryPage: React.FC = () => {
    */
   const completedColumns: ColumnsType<TestTask> = [
     {
-      title: '场景名称',
+      title: t('taskHistory.scenarioName'),
       dataIndex: 'scenarioName',
       key: 'scenarioName',
       width: 200,
@@ -589,35 +591,35 @@ const TaskHistoryPage: React.FC = () => {
       ),
     },
     {
-      title: '状态',
+      title: t('common.status'),
       dataIndex: 'status',
       key: 'status',
       width: 100,
       render: (status: TestTaskStatus) => getStatusTag(status),
     },
     {
-      title: '测试配置',
+      title: t('taskHistory.testConfig'),
       key: 'config',
       width: 250,
       render: (_: any, record: TestTask) => (
         <Space direction="vertical" size={0}>
           <Text style={{ fontSize: '12px' }}>
-            <ClockCircleOutlined /> 速率: {record.config.rate} calls/s
+            <ClockCircleOutlined /> {t('taskHistory.callRate')}: {record.config.rate} calls/s
           </Text>
           <Text style={{ fontSize: '12px' }}>
-            并发: {record.config.users} | 限制: {record.config.limit || '无限'}
+            {t('startTest.users')}: {record.config.users} | {t('startTest.limit')}: {record.config.limit || '∞'}
           </Text>
           <Text style={{ fontSize: '12px' }}>
-            目标: {record.config.remoteHost}:{record.config.remotePort}
+            {record.config.remoteHost}:{record.config.remotePort}
           </Text>
           <Text style={{ fontSize: '12px' }}>
-            协议: {record.config.transport.toUpperCase()}
+            {record.config.transport.toUpperCase()}
           </Text>
         </Space>
       ),
     },
     {
-      title: '统计数据',
+      title: t('taskHistory.statistics'),
       key: 'stats',
       width: 180,
       render: (_: any, record: TestTask) => {
@@ -627,20 +629,20 @@ const TaskHistoryPage: React.FC = () => {
 
         const { totalCalls, successCalls, failedCalls, successRate } = record.stats;
         return (
-          <Tooltip title="点击查看详情">
+          <Tooltip title={t('taskHistory.clickToViewDetail')}>
             <div onClick={() => viewStats(record)} style={{ cursor: 'pointer' }}>
               <Space direction="vertical" size={4} style={{ width: '100%' }}>
                 <div>
                   <Text style={{ fontSize: '12px' }}>
-                    总呼叫: {totalCalls}
+                    {t('taskHistory.totalCalls')}: {totalCalls}
                   </Text>
                 </div>
                 <div>
                   <Text style={{ fontSize: '12px', color: '#52c41a' }}>
-                    成功: {successCalls}
+                    {t('taskHistory.successCalls')}: {successCalls}
                   </Text>
                   <Text style={{ fontSize: '12px', color: '#ff4d4f', marginLeft: 8 }}>
-                    失败: {failedCalls}
+                    {t('taskHistory.failedCalls')}: {failedCalls}
                   </Text>
                 </div>
                 <Progress
@@ -656,31 +658,31 @@ const TaskHistoryPage: React.FC = () => {
       },
     },
     {
-      title: '时间',
+      title: t('common.time'),
       key: 'time',
       width: 180,
       render: (_: any, record: TestTask) => (
         <Space direction="vertical" size={0}>
           <Tooltip title={new Date(record.startTime).toLocaleString()}>
             <Text style={{ fontSize: '12px' }}>
-              开始: {new Date(record.startTime).toLocaleTimeString()}
+              {new Date(record.startTime).toLocaleTimeString()}
             </Text>
           </Tooltip>
           {record.endTime && (
             <Tooltip title={new Date(record.endTime).toLocaleString()}>
               <Text style={{ fontSize: '12px' }}>
-                结束: {new Date(record.endTime).toLocaleTimeString()}
+                → {new Date(record.endTime).toLocaleTimeString()}
               </Text>
             </Tooltip>
           )}
           <Text style={{ fontSize: '12px' }}>
-            持续: {formatDuration(record.startTime, record.endTime)}
+            {formatDuration(record.startTime, record.endTime)}
           </Text>
         </Space>
       ),
     },
     {
-      title: '备注',
+      title: t('taskHistory.remarks'),
       key: 'error',
       width: 150,
       render: (_: any, record: TestTask) => {
@@ -696,7 +698,7 @@ const TaskHistoryPage: React.FC = () => {
         if (record.config.injectionFile) {
           return (
             <Text type="secondary" style={{ fontSize: '12px' }}>
-              注入: {record.config.injectionFile}
+              {record.config.injectionFile}
             </Text>
           );
         }
@@ -704,16 +706,16 @@ const TaskHistoryPage: React.FC = () => {
       },
     },
     {
-      title: '操作',
+      title: t('common.actions'),
       key: 'action',
       width: 100,
       render: (_: any, record: TestTask) => (
         <Popconfirm
-          title="确认删除"
-          description={`确定要删除任务 "${record.scenarioName}" 吗？`}
+          title={t('common.confirmDelete')}
+          description={t('taskHistory.confirmDeleteTask', { name: record.scenarioName })}
           onConfirm={() => handleDeleteTask(record.id)}
-          okText="删除"
-          cancelText="取消"
+          okText={t('common.delete')}
+          cancelText={t('common.cancel')}
           okButtonProps={{ danger: true }}
         >
           <Button
@@ -722,7 +724,7 @@ const TaskHistoryPage: React.FC = () => {
             icon={<DeleteOutlined />}
             loading={deleteLoading === record.id}
           >
-            删除
+            {t('common.delete')}
           </Button>
         </Popconfirm>
       ),
@@ -741,7 +743,7 @@ const TaskHistoryPage: React.FC = () => {
         title={
           <Space>
             <ClockCircleOutlined />
-            <span>任务历史</span>
+            <span>{t('taskHistory.title')}</span>
           </Space>
         }
         extra={
@@ -753,7 +755,7 @@ const TaskHistoryPage: React.FC = () => {
                 onClick={handleBatchDelete}
                 loading={batchDeleteLoading}
               >
-                批量删除 ({selectedRowKeys.length})
+                {t('scenarios.batchDelete')} ({selectedRowKeys.length})
               </Button>
             )}
             <Button
@@ -761,12 +763,12 @@ const TaskHistoryPage: React.FC = () => {
               onClick={() => loadTaskHistory(true)}
               loading={loading}
             >
-              刷新
+              {t('common.refresh')}
             </Button>
           </Space>
         }
       >
-        <Spin spinning={loading} tip="加载任务历史...">
+        <Spin spinning={loading} tip={t('common.loading')}>
           <Tabs
             defaultActiveKey="running"
             items={[
@@ -775,7 +777,7 @@ const TaskHistoryPage: React.FC = () => {
                 label: (
                   <span>
                     <PlayCircleOutlined />
-                    正在进行 ({runningTasks.length})
+                    {t('taskHistory.running')} ({runningTasks.length})
                   </span>
                 ),
                 children: (
@@ -787,10 +789,10 @@ const TaskHistoryPage: React.FC = () => {
                     pagination={{
                       pageSize: 10,
                       showSizeChanger: true,
-                      showTotal: (total) => `共 ${total} 个正在运行的任务`,
+                      showTotal: (total) => t('taskHistory.totalRunningTasks', { total }),
                     }}
                     locale={{
-                      emptyText: '暂无正在运行的任务',
+                      emptyText: t('taskHistory.noRunningTasks'),
                     }}
                   />
                 ),
@@ -800,7 +802,7 @@ const TaskHistoryPage: React.FC = () => {
                 label: (
                   <span>
                     <CheckCircleOutlined />
-                    已完成 ({completedTasks.length})
+                    {t('taskHistory.completed')} ({completedTasks.length})
                   </span>
                 ),
                 children: (
@@ -816,10 +818,10 @@ const TaskHistoryPage: React.FC = () => {
                     pagination={{
                       pageSize: 10,
                       showSizeChanger: true,
-                      showTotal: (total) => `共 ${total} 条历史记录`,
+                      showTotal: (total) => t('taskHistory.totalHistoryRecords', { total }),
                     }}
                     locale={{
-                      emptyText: '暂无历史记录',
+                      emptyText: t('taskHistory.noHistory'),
                     }}
                   />
                 ),
@@ -831,7 +833,7 @@ const TaskHistoryPage: React.FC = () => {
 
       {/* 设置速率弹窗 */}
       <Modal
-        title="设置呼叫速率"
+        title={t('taskHistory.setRateTitle')}
         open={rateModalVisible}
         onOk={async () => {
           if (rateModalTask) {
@@ -840,11 +842,11 @@ const TaskHistoryPage: React.FC = () => {
           }
         }}
         onCancel={() => setRateModalVisible(false)}
-        okText="确定"
-        cancelText="取消"
+        okText={t('common.confirm')}
+        cancelText={t('common.cancel')}
       >
         <Space>
-          <Text>新速率 (calls/s):</Text>
+          <Text>{t('taskHistory.newRate')} (calls/s):</Text>
           <InputNumber
             min={1}
             max={10000}
@@ -856,7 +858,7 @@ const TaskHistoryPage: React.FC = () => {
 
       {/* 屏幕截图弹窗 */}
       <Modal
-        title={<><CameraOutlined /> SIPp 屏幕截图 <Text type="secondary" style={{ fontSize: 12 }}>({screenTime})</Text></>}
+        title={<><CameraOutlined /> {t('taskHistory.screenshotTitle')} <Text type="secondary" style={{ fontSize: 12 }}>({screenTime})</Text></>}
         open={screenModalVisible}
         onCancel={() => setScreenModalVisible(false)}
         footer={null}
@@ -873,13 +875,13 @@ const TaskHistoryPage: React.FC = () => {
           fontFamily: 'Consolas, Monaco, monospace',
           lineHeight: '1.4',
         }}>
-          {screenContent || '暂无内容'}
+          {screenContent || t('taskHistory.noContent')}
         </pre>
       </Modal>
 
       {/* 统计数据弹窗 */}
       <Modal
-        title={<><BarChartOutlined /> 统计数据详情 - {statsTask?.scenarioName}</>}
+        title={<><BarChartOutlined /> {t('taskHistory.statsDetail')} - {statsTask?.scenarioName}</>}
         open={statsModalVisible}
         onCancel={() => setStatsModalVisible(false)}
         footer={null}
@@ -889,30 +891,30 @@ const TaskHistoryPage: React.FC = () => {
           <>
             <Row gutter={16} style={{ marginBottom: 24 }}>
               <Col span={8}>
-                <Statistic title="总呼叫数" value={statsTask.stats.totalCalls} />
+                <Statistic title={t('taskHistory.totalCalls')} value={statsTask.stats.totalCalls} />
               </Col>
               <Col span={8}>
-                <Statistic title="成功" value={statsTask.stats.successCalls} valueStyle={{ color: '#52c41a' }} />
+                <Statistic title={t('taskHistory.successCalls')} value={statsTask.stats.successCalls} valueStyle={{ color: '#52c41a' }} />
               </Col>
               <Col span={8}>
-                <Statistic title="失败" value={statsTask.stats.failedCalls} valueStyle={{ color: '#ff4d4f' }} />
+                <Statistic title={t('taskHistory.failedCalls')} value={statsTask.stats.failedCalls} valueStyle={{ color: '#ff4d4f' }} />
               </Col>
             </Row>
             <Row gutter={16} style={{ marginBottom: 24 }}>
               <Col span={8}>
-                <Statistic title="成功率" value={statsTask.stats.successRate} suffix="%" precision={2} />
+                <Statistic title={t('taskHistory.successRate')} value={statsTask.stats.successRate} suffix="%" precision={2} />
               </Col>
               <Col span={8}>
-                <Statistic title="运行时长" value={formatDuration(statsTask.startTime, statsTask.endTime)} />
+                <Statistic title={t('taskHistory.duration')} value={formatDuration(statsTask.startTime, statsTask.endTime)} />
               </Col>
               <Col span={8}>
-                <Statistic title="呼叫速率" value={statsTask.config.rate} suffix="calls/s" />
+                <Statistic title={t('taskHistory.callRate')} value={statsTask.config.rate} suffix="calls/s" />
               </Col>
             </Row>
             <ReactECharts option={getStatsChartOption()} style={{ height: 300 }} />
           </>
         ) : (
-          <Text type="secondary">暂无统计数据</Text>
+          <Text type="secondary">{t('taskHistory.noStats')}</Text>
         )}
       </Modal>
     </div>

@@ -22,7 +22,7 @@ const App: React.FC = () => {
     const handleTaskCompleted = (data: any) => {
       console.log('Task completed:', data);
       const status = data.success ? TestTaskStatus.COMPLETED : TestTaskStatus.FAILED;
-      const error = data.success ? undefined : `进程退出码: ${data.exitCode}`;
+      const error = data.success ? undefined : `Exit code: ${data.exitCode}`;
 
       updateTask(data.taskId, {
         status,
@@ -35,7 +35,7 @@ const App: React.FC = () => {
         const task = useAppStore.getState().tasks.find(t => t.id === data.taskId);
         if (task) {
           apiService.updateTaskHistory(data.taskId, {
-            status,
+            status: status.toUpperCase() as any,
             end_time: data.timestamp,
             error,
             stats: task.stats,
@@ -58,7 +58,7 @@ const App: React.FC = () => {
         const task = useAppStore.getState().tasks.find(t => t.id === data.taskId);
         if (task) {
           apiService.updateTaskHistory(data.taskId, {
-            status: TestTaskStatus.FAILED,
+            status: 'FAILED',
             end_time: data.timestamp,
             error: data.error,
             stats: task.stats,
@@ -80,7 +80,7 @@ const App: React.FC = () => {
         const task = useAppStore.getState().tasks.find(t => t.id === data.taskId);
         if (task) {
           apiService.updateTaskHistory(data.taskId, {
-            status: TestTaskStatus.STOPPED,
+            status: 'STOPPED',
             end_time: data.timestamp,
             stats: task.stats,
           }).catch(err => {
