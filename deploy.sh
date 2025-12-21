@@ -39,16 +39,9 @@ check_node() {
 check_database() {
     print_info "Checking database..."
     
-    # 检查MySQL是否安装
-    if ! command -v mysql &> /dev/null; then
-        print_error "MySQL client not found"
-        print_error "Please install MySQL client: sudo apt-get install mysql-client"
-        exit 1
-    fi
-    
     # 从环境变量或.env文件读取数据库配置
     if [ -f "backend/.env" ]; then
-        source <(grep -E '^(DB_HOST|DB_PORT|DB_USER|DB_PASSWORD|DB_NAME)=' backend/.env)
+        source <(grep -E '^(DB_HOST|DB_PORT|DB_USER|DB_PASSWORD|DB_NAME|DB_CONTAINER)=' backend/.env)
     fi
     
     DB_HOST="${DB_HOST:-localhost}"
@@ -56,25 +49,68 @@ check_database() {
     DB_USER="${DB_USER:-root}"
     DB_PASSWORD="${DB_PASSWORD:-}"
     DB_NAME="${DB_NAME:-sipp_manager}"
+    DB_CONTAINER="${DB_CONTAINER:-}"
     
     print_info "Database config: ${DB_USER}@${DB_HOST}:${DB_PORT}/${DB_NAME}"
     
+    # 检测使用哪种方式连接数据库
+    MYSQL_CMD=""
+    
+    # 1. 如果指定了容器名称，使用 docker exec
+    if [ -n "$DB_CONTAINER" ]; then
+        print_info "Detected database container: $DB_CONTAINER"
+        if ! command -v docker &> /dev/null; then
+            print_error "Docker command not found"
+            print_error "Please install Docker or set DB_CONTAINER to empty if not using Docker"
+            exit 1
+        fi
+        
+        # 检查容器是否运行
+        if ! docker ps --format '{{.Names}}' | grep -q "^${DB_CONTAINER}$"; then
+            print_error "Database container '$DB_CONTAINER' is not running"
+            print_error "Please start the container: docker start $DB_CONTAINER"
+            exit 1
+        fi
+        
+        MYSQL_CMD="docker exec -i $DB_CONTAINER mysql -u$DB_USER ${DB_PASSWORD:+-p$DB_PASSWORD}"
+        print_success "Database container is running"
+        
+    # 2. 否则使用本地 MySQL 客户端
+    else
+        if ! command -v mysql &> /dev/null; then
+            print_error "MySQL client not found"
+            print_error "Options:"
+            print_error "  1. Install MySQL client: sudo apt-get install mysql-client-core-8.0"
+            print_error "  2. Or set DB_CONTAINER=<container_name> in backend/.env to use Docker"
+            exit 1
+        fi
+        
+        MYSQL_CMD="mysql -h$DB_HOST -P$DB_PORT -u$DB_USER ${DB_PASSWORD:+-p$DB_PASSWORD}"
+    fi
+    
     # 尝试连接数据库 - 强制要求成功
-    if ! mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" ${DB_PASSWORD:+-p"$DB_PASSWORD"} -e "SELECT 1" > /dev/null 2>&1; then
+    if ! $MYSQL_CMD -e "SELECT 1" > /dev/null 2>&1; then
         print_error "Cannot connect to MySQL server"
         print_error "Please check:"
-        print_error "  1. MySQL service is running: sudo systemctl status mysql"
-        print_error "  2. Database credentials are correct"
-        print_error "  3. Host and port are correct"
-        print_error "  4. Set environment variables: DB_HOST, DB_PORT, DB_USER, DB_PASSWORD"
+        print_error "  1. Database service is running"
+        if [ -n "$DB_CONTAINER" ]; then
+            print_error "     Docker: docker ps | grep $DB_CONTAINER"
+        else
+            print_error "     Host: sudo systemctl status mysql"
+        fi
+        print_error "  2. Database credentials are correct (DB_USER, DB_PASSWORD)"
+        print_error "  3. Host and port are correct (DB_HOST, DB_PORT)"
         exit 1
     fi
     print_success "MySQL connection OK"
     
     # 检查数据库是否存在 - 强制要求存在
-    if ! mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" ${DB_PASSWORD:+-p"$DB_PASSWORD"} -e "USE $DB_NAME" > /dev/null 2>&1; then
+    if ! $MYSQL_CMD -e "USE $DB_NAME" > /dev/null 2>&1; then
         print_error "Database '$DB_NAME' does not exist"
         print_error "Please initialize the database first:"
+        if [ -n "$DB_CONTAINER" ]; then
+            print_error "  Docker: export DB_CONTAINER=$DB_CONTAINER"
+        fi
         print_error "  cd backend/database && ./init-db.sh"
         exit 1
     fi
@@ -85,7 +121,7 @@ check_database() {
     MISSING_TABLES=()
     
     for table in "${TABLES[@]}"; do
-        if ! mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" ${DB_PASSWORD:+-p"$DB_PASSWORD"} -D"$DB_NAME" -e "SHOW TABLES LIKE '$table'" 2>/dev/null | grep -q "$table"; then
+        if ! $MYSQL_CMD -D"$DB_NAME" -e "SHOW TABLES LIKE '$table'" 2>/dev/null | grep -q "$table"; then
             MISSING_TABLES+=("$table")
         fi
     done
@@ -93,6 +129,9 @@ check_database() {
     if [ ${#MISSING_TABLES[@]} -gt 0 ]; then
         print_error "Missing database tables: ${MISSING_TABLES[*]}"
         print_error "Please initialize the database:"
+        if [ -n "$DB_CONTAINER" ]; then
+            print_error "  export DB_CONTAINER=$DB_CONTAINER"
+        fi
         print_error "  cd backend/database && ./init-db.sh"
         exit 1
     fi
@@ -102,7 +141,7 @@ check_database() {
     # 显示表统计信息
     print_info "Database statistics:"
     for table in "${TABLES[@]}"; do
-        count=$(mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" ${DB_PASSWORD:+-p"$DB_PASSWORD"} -D"$DB_NAME" -sN -e "SELECT COUNT(*) FROM $table" 2>/dev/null || echo "0")
+        count=$($MYSQL_CMD -D"$DB_NAME" -sN -e "SELECT COUNT(*) FROM $table" 2>/dev/null || echo "0")
         echo "  $table: $count records"
     done
 }

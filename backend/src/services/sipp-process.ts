@@ -431,6 +431,61 @@ export class SippProcessManager extends EventEmitter {
   }
 
   /**
+   * 从数据库恢复运行中的进程
+   * 虽然无法重新获取 ChildProcess 对象，但可以通过 UDP 控制端口控制进程
+   */
+  async recoverProcess(taskId: string, pid: number, controlPort: number): Promise<void> {
+    try {
+      // 检查进程是否仍在运行
+      try {
+        process.kill(pid, 0); // 信号 0 不会真正杀死进程，只是检查是否存在
+      } catch (error) {
+        logger.warn(`Process ${pid} for task ${taskId} not found, cannot recover`);
+        return;
+      }
+
+      // 创建一个 "虚拟" 的进程实例，只保留 UDP 控制功能
+      const processInstance = new SippProcessInstance(taskId, this.sippPath, controlPort);
+      
+      // 设置为运行状态（即使没有 ChildProcess 对象）
+      (processInstance as any).isRunning = true;
+      (processInstance as any).recoveredPid = pid;
+      
+      // 转发事件
+      processInstance.on('stdout', (output) => this.emit('stdout', { taskId, output }));
+      processInstance.on('stderr', (output) => this.emit('stderr', { taskId, output }));
+      processInstance.on('exit', (data) => this.emit('exit', data));
+      processInstance.on('error', (data) => this.emit('error', data));
+      processInstance.on('started', (data) => this.emit('started', data));
+      processInstance.on('stopped', (data) => this.emit('stopped', data));
+
+      // 保存到进程列表
+      this.processes.set(taskId, processInstance);
+
+      logger.info(`Recovered process control for task ${taskId}`, { pid, controlPort });
+
+      // 定期检查进程是否还活着
+      const checkInterval = setInterval(() => {
+        try {
+          process.kill(pid, 0);
+        } catch (error) {
+          // 进程已死亡
+          clearInterval(checkInterval);
+          this.processes.delete(taskId);
+          this.emit('exit', { code: null, signal: null, taskId });
+          logger.info(`Recovered process ${pid} for task ${taskId} has exited`);
+        }
+      }, 5000);
+
+      // 存储定时器引用以便清理
+      (processInstance as any).checkInterval = checkInterval;
+
+    } catch (error: any) {
+      logger.error(`Failed to recover process for task ${taskId}:`, error);
+    }
+  }
+
+  /**
    * 启动SIPp测试
    */
   async start(taskId: string, scenarioFile: string, options: SippStartOptions = {}): Promise<void> {

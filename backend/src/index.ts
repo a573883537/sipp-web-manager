@@ -4,6 +4,7 @@ import http from 'http';
 import { config, validateConfig } from './config';
 import { logger } from './utils/logger';
 import { sippClient } from './services/sipp-client';
+import { sippProcessManager } from './services/sipp-process';
 import { WebSocketService } from './websocket';
 import { testConnection, initializeDatabase } from './database';
 import { taskHistoryRepository } from './database/task-history-repository';
@@ -103,7 +104,7 @@ class SippWebManagerApp {
 
   /**
    * 恢复运行中任务的状态
-   * 检查数据库中状态为 RUNNING 的任务，验证进程是否仍在运行
+   * 尝试重新获取对 SIPp 进程的控制
    */
   private async recoverRunningTasks(): Promise<void> {
     try {
@@ -111,28 +112,35 @@ class SippWebManagerApp {
       logger.info(`Found ${runningTasks.length} tasks with RUNNING status`);
 
       for (const task of runningTasks) {
-        if (task.pid) {
+        if (task.pid && task.control_port) {
           // 检查进程是否仍在运行
           const isAlive = this.isProcessAlive(task.pid);
           if (isAlive) {
-            logger.info(`Task ${task.id} (PID: ${task.pid}) is still running`);
-            // 进程仍在运行，保持状态
+            logger.info(`Task ${task.id} (PID: ${task.pid}) is still running, recovering control`);
+            // 尝试恢复进程控制（通过 UDP 控制端口）
+            try {
+              await sippProcessManager.recoverProcess(task.id, task.pid, task.control_port);
+              logger.info(`Successfully recovered control for task ${task.id}`);
+            } catch (error: any) {
+              logger.error(`Failed to recover control for task ${task.id}:`, error);
+              // 即使恢复失败，也标记为运行中，但用户需要手动停止
+            }
           } else {
             // 进程已不存在，标记为失败
             logger.warn(`Task ${task.id} (PID: ${task.pid}) process not found, marking as FAILED`);
             await taskHistoryRepository.update(task.id, {
               status: 'FAILED',
               end_time: Date.now(),
-              error: '服务重启后进程丢失',
+              error: 'Service restarted and process lost',
             });
           }
         } else {
-          // 没有 PID 记录，标记为失败
-          logger.warn(`Task ${task.id} has no PID, marking as FAILED`);
+          // 没有 PID 或 control_port 记录，标记为失败
+          logger.warn(`Task ${task.id} has no PID or control_port, marking as FAILED`);
           await taskHistoryRepository.update(task.id, {
             status: 'FAILED',
             end_time: Date.now(),
-            error: '服务重启后进程丢失',
+            error: 'Service restarted and process lost (no PID/control_port)',
           });
         }
       }
