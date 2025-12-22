@@ -258,7 +258,7 @@ export class InjectionFileService {
    * 获取注入文件绝对路径（用于SIPp进程）
    */
   getFilePath(filename: string): string {
-    return path.join(this.injectionDir, filename);
+    return path.resolve(this.injectionDir, filename);
   }
 
   /**

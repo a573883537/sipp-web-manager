@@ -162,8 +162,13 @@ class SippProcessInstance extends EventEmitter {
     this.currentRate = rate;
     this.isPaused = false;
 
-    // 构建场景文件完整路径
-    const scenarioPath = path.join(config.sipp.scenarioDir, scenarioFile);
+    // 构建场景文件完整路径用于验证
+    const scenarioPath = path.resolve(config.sipp.scenarioDir, scenarioFile);
+    
+    // 验证场景文件是否存在
+    if (!fs.existsSync(scenarioPath)) {
+      throw new Error(`Scenario file not found: ${scenarioPath}`);
+    }
 
     // 转换传输协议格式
     const transportMap: Record<string, string> = {
@@ -174,11 +179,13 @@ class SippProcessInstance extends EventEmitter {
     const sippTransport = transportMap[transport] || 'u1';
 
     // 为每个任务创建独立的 CSV 文件（放在日志目录下便于管理）
-    const csvPath = path.join(config.sipp.logDir, `${this.taskId}_stats.csv`);
+	// 使用绝对路径确保 SIPp 可以正确写入
+	const csvPath = path.resolve(config.sipp.logDir, `${this.taskId}_stats.csv`);
 
     // 构建SIPp命令参数
+	// 注意：使用文件名而不是完整路径，因为 cwd 已经设置为场景目录
     const args = [
-      '-sf', scenarioPath,
+      '-sf', scenarioFile,  // 仅使用文件名，相对于工作目录
       remoteHost + ':' + remotePort,
       '-p', localPort.toString(),
       '-r', rate.toString(),
@@ -190,7 +197,7 @@ class SippProcessInstance extends EventEmitter {
       '-nostdin',
       '-cp', this.controlPort.toString(),  // 控制端口
       '-trace_screen',  // 启用屏幕追踪
-      '-screen_file', path.join(config.sipp.logDir, `${this.taskId}_screen.log`),  // 自定义屏幕文件名
+      '-screen_file', path.resolve(config.sipp.logDir, `${this.taskId}_screen.log`),  // 自定义屏幕文件名（绝对路径）
     ];
 
     // 添加呼叫限制
@@ -236,15 +243,17 @@ class SippProcessInstance extends EventEmitter {
 
     // 添加会话外场景文件（用于处理 NOTIFY/OPTIONS 等）
     if (oocsf) {
-      const oocsfPath = path.join(config.sipp.scenarioDir, oocsf);
+		const oocsfPath = path.resolve(config.sipp.scenarioDir, oocsf);
       if (!fs.existsSync(oocsfPath)) {
         throw new Error(`Out of call scenario file not found: ${oocsf}`);
       }
-      args.push('-oocsf', oocsfPath);
+      // 仅使用文件名，相对于工作目录
+      args.push('-oocsf', oocsf);
     }
 
     // 日志追踪选项（统一使用 taskId 前缀便于管理）
-    const logPrefix = path.join(config.sipp.logDir, this.taskId);
+	// 使用绝对路径确保 SIPp 可以正确写入日志
+    const logPrefix = path.resolve(config.sipp.logDir, this.taskId);
     if (options.traceMsg) {
       args.push('-trace_msg', '-message_file', `${logPrefix}_messages.log`);
     }
@@ -276,8 +285,10 @@ class SippProcessInstance extends EventEmitter {
     });
 
     try {
+      // 使用绝对路径作为工作目录
+      const workingDir = path.resolve(config.sipp.scenarioDir);
       this.process = spawn(this.sippPath, args, {
-        cwd: config.sipp.scenarioDir,
+        cwd: workingDir,
         env: {
           ...process.env,
           LD_LIBRARY_PATH: path.dirname(this.sippPath),
