@@ -171,7 +171,11 @@
     "noHistory": "No history records",
     "totalRunningTasks": "{total} running tasks",
     "totalHistoryRecords": "{total} history records",
-    "currentRate": "Current"
+    "currentRate": "Current",
+    "downloadLogs": "Download Logs",
+    "logs": "Logs",
+    "downloadStarted": "Download started",
+    "noLogsAvailable": "No logs available"
   },
   "injectionFiles": {
     "title": "Injection Files",
@@ -194,5 +198,11 @@
   "language": {
     "zh-CN": "中文",
     "en-US": "English"
+  },
+  "logs": {
+    "systemLogs": "System Logs",
+    "downloadAppLog": "Download Application Log",
+    "downloadErrorLog": "Download Error Log",
+    "downloadAllLogs": "Download All Logs"
   }
 }

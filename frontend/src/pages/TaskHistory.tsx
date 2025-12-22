@@ -14,6 +14,7 @@ import {
   ControlOutlined,
   CameraOutlined,
   BarChartOutlined,
+  DownloadOutlined,
 } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
 import { useTranslation } from 'react-i18next';
@@ -467,6 +468,25 @@ const TaskHistoryPage: React.FC = () => {
   };
 
   /**
+   * 下载任务日志
+   */
+  const handleDownloadTaskLogs = async (taskId: string) => {
+    try {
+      // 先检查是否有日志文件
+      const response = await apiService.getTaskLogFiles(taskId);
+      if (response.success && response.files && response.files.length > 0) {
+        apiService.downloadTaskLogs(taskId);
+        message.success(t('taskHistory.downloadStarted'));
+      } else {
+        message.warning(t('taskHistory.noLogsAvailable'));
+      }
+    } catch (error: any) {
+      message.error(`${t('common.failed')}: ${error.message}`);
+    }
+  };
+
+
+  /**
    * 表格列配置（正在进行）
    */
   const runningColumns: ColumnsType<TestTask> = [
@@ -753,25 +773,36 @@ const TaskHistoryPage: React.FC = () => {
     {
       title: t('common.actions'),
       key: 'action',
-      width: 100,
+      width: 150,
       render: (_: any, record: TestTask) => (
-        <Popconfirm
-          title={t('common.confirmDelete')}
-          description={t('taskHistory.confirmDeleteTask', { name: record.scenarioName })}
-          onConfirm={() => handleDeleteTask(record.id)}
-          okText={t('common.delete')}
-          cancelText={t('common.cancel')}
-          okButtonProps={{ danger: true }}
-        >
-          <Button
-            danger
-            size="small"
-            icon={<DeleteOutlined />}
-            loading={deleteLoading === record.id}
+        <Space>
+          <Tooltip title={t('taskHistory.downloadLogs')}>
+            <Button
+              size="small"
+              icon={<DownloadOutlined />}
+              onClick={() => handleDownloadTaskLogs(record.id)}
+            >
+              {t('taskHistory.logs')}
+            </Button>
+          </Tooltip>
+          <Popconfirm
+            title={t('common.confirmDelete')}
+            description={t('taskHistory.confirmDeleteTask', { name: record.scenarioName })}
+            onConfirm={() => handleDeleteTask(record.id)}
+            okText={t('common.delete')}
+            cancelText={t('common.cancel')}
+            okButtonProps={{ danger: true }}
           >
-            {t('common.delete')}
-          </Button>
-        </Popconfirm>
+            <Button
+              danger
+              size="small"
+              icon={<DeleteOutlined />}
+              loading={deleteLoading === record.id}
+            >
+              {t('common.delete')}
+            </Button>
+          </Popconfirm>
+        </Space>
       ),
     },
   ];
@@ -793,6 +824,43 @@ const TaskHistoryPage: React.FC = () => {
         }
         extra={
           <Space>
+            <Dropdown
+              menu={{
+                items: [
+                  {
+                    key: 'app',
+                    label: t('logs.downloadAppLog'),
+                    icon: <DownloadOutlined />,
+                    onClick: () => {
+                      apiService.downloadApplicationLogs('app');
+                      message.success(t('taskHistory.downloadStarted'));
+                    },
+                  },
+                  {
+                    key: 'error',
+                    label: t('logs.downloadErrorLog'),
+                    icon: <DownloadOutlined />,
+                    onClick: () => {
+                      apiService.downloadApplicationLogs('error');
+                      message.success(t('taskHistory.downloadStarted'));
+                    },
+                  },
+                  {
+                    key: 'all',
+                    label: t('logs.downloadAllLogs'),
+                    icon: <DownloadOutlined />,
+                    onClick: () => {
+                      apiService.downloadApplicationLogs('all');
+                      message.success(t('taskHistory.downloadStarted'));
+                    },
+                  },
+                ],
+              }}
+            >
+              <Button icon={<DownloadOutlined />}>
+                {t('logs.systemLogs')}
+              </Button>
+            </Dropdown>
             {selectedRowKeys.length > 0 && (
               <Button
                 danger

@@ -980,6 +980,203 @@ apiRouter.delete('/config-templates/:id', async (req: Request, res: Response): P
 });
 
 /**
+ * ==================== 日志下载 API ====================
+ */
+
+/**
+ * 获取任务的可用日志文件列表
+ */
+apiRouter.get('/logs/task/:taskId/files', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { taskId } = req.params;
+    const logDir = config.sipp.logDir;
+    
+    const files = fsSync.readdirSync(logDir);
+    const taskLogFiles = files
+      .filter(f => f.includes(taskId))
+      .map(f => {
+        const filePath = path.join(logDir, f);
+        const stats = fsSync.statSync(filePath);
+        return {
+          filename: f,
+          size: stats.size,
+          mtime: stats.mtime,
+        };
+      });
+    
+    res.json({ success: true, files: taskLogFiles });
+  } catch (error: any) {
+    logger.error('Failed to get task log files:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * 下载任务关联的日志文件（打包为 ZIP）
+ */
+apiRouter.get('/logs/task/:taskId/download', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { taskId } = req.params;
+    const logDir = config.sipp.logDir;
+    
+    // 查找所有与该任务相关的日志文件
+    const files = fsSync.readdirSync(logDir);
+    const taskLogFiles = files.filter(f => f.includes(taskId));
+    
+    if (taskLogFiles.length === 0) {
+      res.status(404).json({ success: false, error: 'No log files found for this task' });
+      return;
+    }
+    
+    // 使用 archiver 打包为 ZIP
+    const archiver = require('archiver');
+    const archive = archiver('zip', { zlib: { level: 9 } });
+    
+    res.attachment(`task_${taskId}_logs.zip`);
+    archive.pipe(res);
+    
+    // 添加所有相关日志文件到压缩包
+    for (const file of taskLogFiles) {
+      const filePath = path.join(logDir, file);
+      if (fsSync.statSync(filePath).isFile()) {
+        archive.file(filePath, { name: file });
+      }
+    }
+    
+    archive.finalize();
+    
+    logger.info('Task logs downloaded', { taskId, files: taskLogFiles.length });
+  } catch (error: any) {
+    logger.error('Failed to download task logs:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * 下载单个任务日志文件
+ */
+apiRouter.get('/logs/task/:taskId/:type', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { taskId, type } = req.params;
+    const logDir = config.sipp.logDir;
+    
+    // 支持的日志类型映射
+    const typeMap: Record<string, string> = {
+      'screen': '_screen.log',
+      'stats': '_stats.csv',
+      'messages': '_messages.log',
+      'errors': '_errors.log',
+      'calldebug': '_calldebug.log',
+      'shortmsg': '_shortmsg.log',
+      'logs': '_logs.log',
+    };
+    
+    const suffix = typeMap[type];
+    if (!suffix) {
+      res.status(400).json({ success: false, error: 'Invalid log type' });
+      return;
+    }
+    
+    const filename = `${taskId}${suffix}`;
+    const filePath = path.join(logDir, filename);
+    
+    if (!fsSync.existsSync(filePath)) {
+      res.status(404).json({ success: false, error: 'Log file not found' });
+      return;
+    }
+    
+    res.download(filePath, filename, (err) => {
+      if (err) {
+        logger.error('Failed to download log file:', err);
+      } else {
+        logger.info('Log file downloaded', { taskId, type, filename });
+      }
+    });
+  } catch (error: any) {
+    logger.error('Failed to download log file:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * 下载应用日志（后端日志）
+ */
+apiRouter.get('/logs/application/download', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { type } = req.query; // 'app' or 'error' or 'all'
+    const logDir = path.dirname(config.logging.file);
+    
+    const archiver = require('archiver');
+    const archive = archiver('zip', { zlib: { level: 9 } });
+    
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
+    res.attachment(`application_logs_${timestamp}.zip`);
+    archive.pipe(res);
+    
+    // 添加应用日志
+    if (!type || type === 'app' || type === 'all') {
+      const appLogPath = config.logging.file;
+      if (fsSync.existsSync(appLogPath)) {
+        archive.file(appLogPath, { name: path.basename(appLogPath) });
+      }
+    }
+    
+    // 添加错误日志
+    if (!type || type === 'error' || type === 'all') {
+      const errorLogPath = path.join(logDir, 'error.log');
+      if (fsSync.existsSync(errorLogPath)) {
+        archive.file(errorLogPath, { name: 'error.log' });
+      }
+    }
+    
+    archive.finalize();
+    
+    logger.info('Application logs downloaded', { type: type || 'all' });
+  } catch (error: any) {
+    logger.error('Failed to download application logs:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * 获取应用日志文件信息
+ */
+apiRouter.get('/logs/application/info', async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const logDir = path.dirname(config.logging.file);
+    const appLogPath = config.logging.file;
+    const errorLogPath = path.join(logDir, 'error.log');
+    
+    const files = [];
+    
+    if (fsSync.existsSync(appLogPath)) {
+      const stats = fsSync.statSync(appLogPath);
+      files.push({
+        name: 'app.log',
+        path: appLogPath,
+        size: stats.size,
+        mtime: stats.mtime,
+      });
+    }
+    
+    if (fsSync.existsSync(errorLogPath)) {
+      const stats = fsSync.statSync(errorLogPath);
+      files.push({
+        name: 'error.log',
+        path: errorLogPath,
+        size: stats.size,
+        mtime: stats.mtime,
+      });
+    }
+    
+    res.json({ success: true, files });
+  } catch (error: any) {
+    logger.error('Failed to get application log info:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
  * 错误处理中间件
  */
 apiRouter.use((error: Error, _req: Request, res: Response, _next: any) => {

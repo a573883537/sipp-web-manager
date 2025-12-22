@@ -390,6 +390,49 @@ class ApiService {
   async deleteConfigTemplate(id: number): Promise<ApiResponse> {
     return this.client.delete(`/config-templates/${id}`);
   }
+
+  /**
+   * ==================== 日志下载 API ====================
+   */
+
+  /**
+   * 获取任务的可用日志文件列表
+   */
+  async getTaskLogFiles(taskId: string): Promise<ApiResponse<{ files: any[] }>> {
+    return this.client.get(`/logs/task/${taskId}/files`);
+  }
+
+  /**
+   * 下载任务所有日志（ZIP）
+   */
+  downloadTaskLogs(taskId: string): void {
+    const url = `${this.client.defaults.baseURL}/logs/task/${taskId}/download`;
+    window.open(url, '_blank');
+  }
+
+  /**
+   * 下载单个任务日志文件
+   */
+  downloadTaskLogFile(taskId: string, type: string): void {
+    const url = `${this.client.defaults.baseURL}/logs/task/${taskId}/${type}`;
+    window.open(url, '_blank');
+  }
+
+  /**
+   * 获取应用日志文件信息
+   */
+  async getApplicationLogInfo(): Promise<ApiResponse<{ files: any[] }>> {
+    return this.client.get('/logs/application/info');
+  }
+
+  /**
+   * 下载应用日志
+   * @param type - 'app' | 'error' | 'all'
+   */
+  downloadApplicationLogs(type?: string): void {
+    const url = `${this.client.defaults.baseURL}/logs/application/download${type ? `?type=${type}` : ''}`;
+    window.open(url, '_blank');
+  }
 }
 
 // 单例导出

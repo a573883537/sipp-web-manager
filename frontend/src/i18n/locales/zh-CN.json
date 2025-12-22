@@ -171,7 +171,11 @@
     "noHistory": "暂无历史记录",
     "totalRunningTasks": "共 {total} 个正在运行的任务",
     "totalHistoryRecords": "共 {total} 条历史记录",
-    "currentRate": "当前"
+    "currentRate": "当前",
+    "downloadLogs": "下载日志",
+    "logs": "日志",
+    "downloadStarted": "开始下载",
+    "noLogsAvailable": "暂无可用日志"
   },
   "injectionFiles": {
     "title": "注入文件",
@@ -194,5 +198,11 @@
   "language": {
     "zh-CN": "中文",
     "en-US": "English"
+  },
+  "logs": {
+    "systemLogs": "系统日志",
+    "downloadAppLog": "下载应用日志",
+    "downloadErrorLog": "下载错误日志",
+    "downloadAllLogs": "下载所有日志"
   }
 }
