@@ -427,9 +427,10 @@ class ApiService {
 
   /**
    * 下载任务所有日志（ZIP）
+   * 使用 download-remote 接口自动路由到正确的节点
    */
   downloadTaskLogs(taskId: string): void {
-    const url = `${this.client.defaults.baseURL}/logs/task/${taskId}/download`;
+    const url = `${this.client.defaults.baseURL}/logs/task/${taskId}/download-remote`;
     window.open(url, '_blank');
   }
 

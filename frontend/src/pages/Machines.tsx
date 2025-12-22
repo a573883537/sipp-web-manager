@@ -63,7 +63,28 @@ const Machines: React.FC = () => {
       }
 
       if (tasksResponse.success && tasksResponse.tasksByMachine) {
-        setRunningTasksByMachine(tasksResponse.tasksByMachine);
+        // 保留现有的stats数据，避免覆盖WebSocket推送的实时统计
+        setRunningTasksByMachine((prev) => {
+          const updated = { ...tasksResponse.tasksByMachine };
+
+          // 遍历每个机器的任务列表
+          for (const machineId in updated) {
+            updated[machineId] = updated[machineId].map((newTask: any) => {
+              // 查找该任务在现有状态中的stats
+              const prevMachineTasks = prev[machineId] || [];
+              const prevTask = prevMachineTasks.find((t: any) => t.id === newTask.id);
+
+              // 如果现有任务有stats，保留它（WebSocket推送的实时数据优先）
+              if (prevTask && prevTask.stats) {
+                return { ...newTask, stats: prevTask.stats };
+              }
+
+              return newTask;
+            });
+          }
+
+          return updated;
+        });
       }
     } catch (error: any) {
       message.error(`加载数据失败: ${error.message}`);
@@ -192,7 +213,10 @@ const Machines: React.FC = () => {
       width: 200,
       render: (name: string, record) => (
         <Space direction="vertical" size={0}>
-          <Text strong>{name}</Text>
+          <Space>
+            <Text strong>{name}</Text>
+            {record.isPaused && <Tag color="warning" icon={<PauseCircleOutlined />}>已暂停</Tag>}
+          </Space>
           <Text type="secondary" style={{ fontSize: '12px' }}>
             {record.scenario_file}
           </Text>
@@ -202,20 +226,25 @@ const Machines: React.FC = () => {
     {
       title: '测试配置',
       key: 'config',
-      width: 220,
+      width: 280,
       render: (_: any, record) => {
         const config = record.config;
         return (
           <Space direction="vertical" size={0}>
             <Text style={{ fontSize: '12px' }}>
-              <ClockCircleOutlined /> 速率: {config.rate} calls/s
-            </Text>
-            <Text style={{ fontSize: '12px' }}>
-              用户数: {config.users} | 限制: {config.limit || '∞'}
+              <ClockCircleOutlined /> 速率: {config.rate} calls/s | 用户: {config.users}
             </Text>
             <Text style={{ fontSize: '12px' }}>
               目标: {config.remoteHost}:{config.remotePort}
             </Text>
+            <Text style={{ fontSize: '12px' }}>
+              本地端口: {config.localPort} | 控制: {record.control_port || 'N/A'}
+            </Text>
+            {config.minRtpPort && config.maxRtpPort && (
+              <Text style={{ fontSize: '12px' }}>
+                RTP: {config.minRtpPort}-{config.maxRtpPort}
+              </Text>
+            )}
           </Space>
         );
       },
@@ -267,10 +296,11 @@ const Machines: React.FC = () => {
       fixed: 'right',
       render: (_: any, record: any) => (
         <Space size="small">
-          <Tooltip title="暂停/恢复">
+          <Tooltip title={record.isPaused ? "恢复" : "暂停"}>
             <Button
               size="small"
-              icon={<PauseCircleOutlined />}
+              type={record.isPaused ? "primary" : "default"}
+              icon={record.isPaused ? <PlayCircleOutlined /> : <PauseCircleOutlined />}
               onClick={() => handleTaskControl(record.id, 'p')}
             />
           </Tooltip>
@@ -513,6 +543,40 @@ const Machines: React.FC = () => {
   }, []);
 
   /**
+   * 处理WebSocket推送的任务暂停/恢复状态变化
+   */
+  const handleTaskPausedUpdate = useCallback((data: any) => {
+    if (!data || !data.taskId) return;
+
+    const { taskId, isPaused } = data;
+
+    // 更新任务的暂停状态
+    setRunningTasksByMachine((prev) => {
+      const updated = { ...prev };
+
+      // 找到该任务所在的机器并更新状态
+      for (const machineId in updated) {
+        const tasks = updated[machineId];
+        const taskIndex = tasks.findIndex((t: any) => t.id === taskId);
+
+        if (taskIndex !== -1) {
+          updated[machineId] = [...tasks];
+          updated[machineId][taskIndex] = {
+            ...tasks[taskIndex],
+            isPaused,
+          };
+          break;
+        }
+      }
+
+      return updated;
+    });
+
+    // 显示提示消息
+    message.info(isPaused ? `任务 ${taskId} 已暂停` : `任务 ${taskId} 已恢复`);
+  }, []);
+
+  /**
    * 初始化加载
    */
   useEffect(() => {
@@ -520,6 +584,8 @@ const Machines: React.FC = () => {
 
     // 监听WebSocket任务统计数据更新
     wsService.on('tasks:stats', handleTaskStatsUpdate);
+    // 监听WebSocket任务暂停/恢复状态更新
+    wsService.on('task:paused', handleTaskPausedUpdate);
 
     // 自动刷新（每10秒）
     const interval = setInterval(() => {
@@ -528,6 +594,7 @@ const Machines: React.FC = () => {
 
     return () => {
       wsService.off('tasks:stats', handleTaskStatsUpdate);
+      wsService.off('task:paused', handleTaskPausedUpdate);
       clearInterval(interval);
     };
   }, []);
