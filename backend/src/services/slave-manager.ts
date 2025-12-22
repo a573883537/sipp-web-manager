@@ -237,10 +237,19 @@ export class SlaveManager {
 
   /**
    * 健康检查
+   * 支持主机和从机的健康检查
    */
   async checkSlaveHealth(machineId: string): Promise<boolean> {
+    // 如果检查的是主机自己，直接返回 true（无需 HTTP 请求）
+    if (machineId === 'master' || machineId === config.node.machineId) {
+      logger.info(`Health check for master node: always healthy (local check)`);
+      return true;
+    }
+
+    // 从机健康检查：通过 HTTP 请求
     const slave = await this.getSlaveInfo(machineId);
     if (!slave) {
+      logger.warn(`Slave not found in database: ${machineId}`);
       return false;
     }
 
