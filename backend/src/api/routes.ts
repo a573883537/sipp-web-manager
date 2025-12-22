@@ -555,6 +555,94 @@ apiRouter.post('/scenarios', async (req: Request, res: Response): Promise<void> 
 });
 
 /**
+ * 场景管理 - 通过 XML 内容创建/更新场景（用于文件上传或 XML 编辑）
+ * 采用宽松策略：即使XML格式有问题也会保存文件
+ */
+apiRouter.post('/scenarios/xml', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { filename, xml } = req.body;
+
+    if (!filename || !xml) {
+      res.status(400).json({
+        success: false,
+        error: 'Missing required fields: filename, xml',
+      });
+      return;
+    }
+
+    // 确保文件名以 .xml 结尾
+    const normalizedFilename = filename.endsWith('.xml') ? filename : `${filename}.xml`;
+
+    // 尝试解析 XML，但如果失败不返回错误（宽松策略）
+    let scenario: any = null;
+    let parseWarning: string | null = null;
+
+    try {
+      scenario = await xmlParser.parseString(xml);
+
+      // 尝试验证，但不阻止保存
+      const validation = await xmlParser.validate(scenario);
+      if (!validation.valid) {
+        parseWarning = `场景验证警告: ${validation.errors.join(', ')}`;
+        logger.warn(`Scenario validation warnings for ${normalizedFilename}:`, validation.errors);
+      }
+    } catch (parseError: any) {
+      // 解析失败，使用默认值
+      parseWarning = `XML 解析警告: ${parseError.message}`;
+      logger.warn(`Failed to parse XML for ${normalizedFilename}, using defaults:`, parseError.message);
+
+      // 使用默认的场景结构
+      scenario = {
+        name: normalizedFilename.replace('.xml', ''),
+        messages: [],
+        variables: [],
+        init: [],
+      };
+    }
+
+    // 保存 XML 文件到文件系统（无论解析是否成功）
+    const filePath = path.join(config.sipp.scenarioDir, normalizedFilename);
+
+    // 安全检查
+    if (!filePath.startsWith(config.sipp.scenarioDir)) {
+      res.status(403).json({ success: false, error: 'Access denied' });
+      return;
+    }
+
+    // 直接保存用户提供的 XML 内容
+    await fs.writeFile(filePath, xml, 'utf-8');
+
+    // 尝试保存到数据库（使用解析出的或默认的信息）
+    let record: any = null;
+    try {
+      record = await scenarioRepository.upsert(normalizedFilename, scenario);
+    } catch (dbError: any) {
+      logger.warn(`Failed to save scenario to database for ${normalizedFilename}:`, dbError.message);
+      // 数据库保存失败不影响文件保存
+    }
+
+    res.json({
+      success: true,
+      message: parseWarning
+        ? `场景已保存（${parseWarning}）`
+        : 'Scenario XML saved successfully',
+      warning: parseWarning || undefined,
+      scenario: record ? {
+        id: record.id,
+        filename: record.filename,
+        name: record.name,
+        created_at: record.created_at,
+        updated_at: record.updated_at,
+      } : undefined,
+      path: filePath,
+    });
+  } catch (error: any) {
+    logger.error('Failed to save scenario XML:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
  * 场景管理 - 删除场景（从数据库和文件系统）
  */
 apiRouter.delete('/scenarios/:filename', async (req: Request, res: Response): Promise<void> => {
@@ -1603,7 +1691,6 @@ apiRouter.post('/machines/heartbeat', async (req: Request, res: Response): Promi
       ipAddress,
       apiPort,
       role,
-      sippVersion,
       status,
       cpuUsage,
       memoryUsage,
@@ -1625,14 +1712,13 @@ apiRouter.post('/machines/heartbeat', async (req: Request, res: Response): Promi
       // 完整注册（包含机器信息）
       await query(`
         INSERT INTO machines (
-          id, name, ip_address, api_port, role, sipp_version,
+          id, name, ip_address, api_port, role,
           status, cpu_usage, memory_usage, running_tasks, last_heartbeat
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON DUPLICATE KEY UPDATE
           name = VALUES(name),
           ip_address = VALUES(ip_address),
           api_port = VALUES(api_port),
-          sipp_version = VALUES(sipp_version),
           status = VALUES(status),
           cpu_usage = VALUES(cpu_usage),
           memory_usage = VALUES(memory_usage),
@@ -1644,7 +1730,6 @@ apiRouter.post('/machines/heartbeat', async (req: Request, res: Response): Promi
         ipAddress || '0.0.0.0',
         apiPort || 3000,
         role || 'slave',
-        sippVersion || 'unknown',
         status,
         cpuUsage || null,
         memoryUsage || null,
@@ -1652,7 +1737,7 @@ apiRouter.post('/machines/heartbeat', async (req: Request, res: Response): Promi
         lastHeartbeat || Date.now(),
       ]);
     } else {
-      // 心跳更新（仅更新状态，如果带了 sippVersion 也更新）
+      // 心跳更新（仅更新状态）
       const updateFields: string[] = [];
       const updateValues: any[] = [];
 
@@ -1667,11 +1752,6 @@ apiRouter.post('/machines/heartbeat', async (req: Request, res: Response): Promi
 
       updateFields.push('running_tasks = ?');
       updateValues.push(runningTasks || 0);
-
-      if (sippVersion) {
-        updateFields.push('sipp_version = ?');
-        updateValues.push(sippVersion);
-      }
 
       updateFields.push('last_heartbeat = ?');
       updateValues.push(lastHeartbeat || Date.now());
@@ -1727,7 +1807,7 @@ apiRouter.get('/machines', async (_req: Request, res: Response): Promise<void> =
       SELECT
         id, name, ip_address, api_port, role, status,
         cpu_usage, memory_usage, running_tasks, total_tasks,
-        sipp_version, last_heartbeat
+        last_heartbeat
       FROM machines
       ORDER BY
         CASE role WHEN 'master' THEN 0 ELSE 1 END,
@@ -1745,7 +1825,6 @@ apiRouter.get('/machines', async (_req: Request, res: Response): Promise<void> =
       memoryUsage: row.memory_usage,
       runningTasks: row.running_tasks,
       totalTasks: row.total_tasks,
-      sippVersion: row.sipp_version,
       lastHeartbeat: row.last_heartbeat,
     }));
 

@@ -12,16 +12,20 @@ import {
   Popconfirm,
   Typography,
   Alert,
+  Upload,
+  Tabs,
 } from 'antd';
 import {
   PlusOutlined,
   EditOutlined,
   DeleteOutlined,
   FileTextOutlined,
+  UploadOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { useTranslation } from 'react-i18next';
 import { apiService } from '@/services/api';
+import type { UploadFile } from 'antd/es/upload/interface';
 
 const { TextArea } = Input;
 const { Text } = Typography;
@@ -48,6 +52,7 @@ const InjectionFiles: React.FC = () => {
   const [modalVisible, setModalVisible] = useState(false);
   const [modalMode, setModalMode] = useState<'create' | 'edit'>('create');
   const [form] = Form.useForm();
+  const [fileList, setFileList] = useState<UploadFile[]>([]);
 
   // 加载注入文件列表
   const loadFiles = async () => {
@@ -71,6 +76,7 @@ const InjectionFiles: React.FC = () => {
   // 打开创建/编辑对话框
   const handleOpenModal = (mode: 'create' | 'edit', file?: InjectionFile) => {
     setModalMode(mode);
+    setFileList([]); // 重置文件列表
     if (file) {
       form.setFieldsValue({
         filename: file.filename,
@@ -81,6 +87,27 @@ const InjectionFiles: React.FC = () => {
       form.resetFields();
     }
     setModalVisible(true);
+  };
+
+  // 处理文件上传
+  const handleFileUpload = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const content = e.target?.result as string;
+      const filename = file.name;
+
+      // 自动填充表单
+      form.setFieldsValue({
+        filename: filename,
+        content: content,
+      });
+
+      message.success(`文件 ${filename} 已加载`);
+    };
+    reader.readAsText(file);
+
+    // 阻止自动上传
+    return false;
   };
 
   // 保存注入文件
@@ -340,6 +367,7 @@ To: <sip:[field2]@[remote_ip]>
         onCancel={() => {
           setModalVisible(false);
           form.resetFields();
+          setFileList([]);
         }}
         width={800}
         okText={t('common.save')}
@@ -359,21 +387,69 @@ To: <sip:[field2]@[remote_ip]>
           <Form.Item label={t('common.description')} name="description">
             <Input placeholder={t('common.description')} />
           </Form.Item>
-          <Form.Item
-            label="CSV Content"
-            name="content"
-            rules={[{ required: true, message: 'Please input CSV content' }]}
-          >
-            <TextArea
-              rows={12}
-              placeholder={`SEQUENTIAL
+
+          <Tabs
+            defaultActiveKey="manual"
+            items={[
+              {
+                key: 'upload',
+                label: (
+                  <span>
+                    <UploadOutlined />
+                    上传文件
+                  </span>
+                ),
+                children: (
+                  <div>
+                    <Upload
+                      accept=".csv"
+                      fileList={fileList}
+                      beforeUpload={handleFileUpload}
+                      onRemove={() => {
+                        setFileList([]);
+                        form.setFieldsValue({ content: '' });
+                      }}
+                      maxCount={1}
+                    >
+                      <Button icon={<UploadOutlined />}>选择 CSV 文件</Button>
+                    </Upload>
+                    <Alert
+                      message="文件上传后将自动填充到下方内容框"
+                      type="info"
+                      showIcon
+                      style={{ marginTop: 16 }}
+                    />
+                  </div>
+                ),
+              },
+              {
+                key: 'manual',
+                label: (
+                  <span>
+                    <FileTextOutlined />
+                    手动输入
+                  </span>
+                ),
+                children: (
+                  <Form.Item
+                    label="CSV Content"
+                    name="content"
+                    rules={[{ required: true, message: 'Please input CSV content' }]}
+                  >
+                    <TextArea
+                      rows={12}
+                      placeholder={`SEQUENTIAL
 # caller;password;callee
 1001;pass123;9000
 1002;pass456;9000
 1003;pass789;9000`}
-              style={{ fontFamily: 'monospace' }}
-            />
-          </Form.Item>
+                      style={{ fontFamily: 'monospace' }}
+                    />
+                  </Form.Item>
+                ),
+              },
+            ]}
+          />
         </Form>
       </Modal>
     </div>

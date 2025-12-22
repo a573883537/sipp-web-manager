@@ -3,7 +3,6 @@ import { logger } from '../utils/logger';
 import { query } from '../database';
 import { sippProcessManager } from './sipp-process';
 import os from 'os';
-import { execSync } from 'child_process';
 
 /**
  * 主机自注册服务
@@ -18,7 +17,6 @@ export class MasterRegistryService {
   private timer: NodeJS.Timeout | null = null;
   private readonly machineId = config.node.machineId;
   private readonly interval = 10000; // 10秒更新一次
-  private sippVersionCache: string | null = null; // 缓存SIPp版本
   private lastCpuTimes: { idle: number; total: number } | null = null; // 上次CPU时间采样
 
   /**
@@ -68,25 +66,18 @@ export class MasterRegistryService {
   private async register(): Promise<void> {
     try {
       const ip = this.getLocalIP();
-
-      // 使用缓存的 SIPp 版本（首次获取后缓存）
-      if (this.sippVersionCache === null) {
-        this.sippVersionCache = this.getSippVersion();
-      }
-
       const stats = this.getSystemStats();
       const runningTasks = sippProcessManager.getRunningCount();
 
       await query(`
         INSERT INTO machines (
-          id, name, ip_address, api_port, role, sipp_version,
+          id, name, ip_address, api_port, role,
           status, cpu_usage, memory_usage, running_tasks, last_heartbeat
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON DUPLICATE KEY UPDATE
           name = VALUES(name),
           ip_address = VALUES(ip_address),
           api_port = VALUES(api_port),
-          sipp_version = VALUES(sipp_version),
           status = VALUES(status),
           cpu_usage = VALUES(cpu_usage),
           memory_usage = VALUES(memory_usage),
@@ -98,7 +89,6 @@ export class MasterRegistryService {
         ip,
         config.server.port,
         'master',
-        this.sippVersionCache,
         'online',
         stats.cpu,
         stats.memory,
@@ -259,28 +249,6 @@ export class MasterRegistryService {
     }
 
     return '127.0.0.1';
-  }
-
-  /**
-   * 获取 SIPp 版本
-   */
-  private getSippVersion(): string {
-    try {
-      const output = execSync('sipp -v', {
-        encoding: 'utf-8',
-        timeout: 3000,
-      });
-      // 匹配格式: "SIPp v3.7.5-20-g66074c1-TLS-PCAP-SHA256"
-      const match = output.match(/SIPp\s+v(\S+)/i);
-
-      if (match) {
-        // 移除末尾的点号（如果有）
-        return match[1].replace(/\.$/, '');
-      }
-      return 'unknown';
-    } catch {
-      return 'unknown';
-    }
   }
 }
 

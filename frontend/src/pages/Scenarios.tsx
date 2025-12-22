@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from 'react';
-import { Card, Table, Button, Space, message, Modal, Form, InputNumber, Input, Select, Tag, Switch, Collapse, Popconfirm, List, Tooltip } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, EyeOutlined, PlayCircleOutlined, SettingOutlined, SaveOutlined, StarOutlined, StarFilled, AppstoreOutlined, AudioOutlined, ClockCircleOutlined, BugOutlined, ToolOutlined, CopyOutlined, FileTextOutlined } from '@ant-design/icons';
+import { Card, Table, Button, Space, message, Modal, Form, InputNumber, Input, Select, Tag, Switch, Collapse, Popconfirm, List, Tooltip, Upload } from 'antd';
+import { PlusOutlined, EditOutlined, DeleteOutlined, EyeOutlined, PlayCircleOutlined, SettingOutlined, SaveOutlined, StarOutlined, StarFilled, AppstoreOutlined, AudioOutlined, ClockCircleOutlined, BugOutlined, ToolOutlined, CopyOutlined, FileTextOutlined, UploadOutlined, CodeOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { apiService } from '@/services/api';
 import { useAppStore } from '@/stores/useAppStore';
 import type { ScenarioFile, Scenario, TestTask, MachineInfo } from '@/types';
 import { TestTaskStatus } from '@/types';
 import ScenarioForm from '@/components/ScenarioForm';
+import type { UploadFile } from 'antd/es/upload/interface';
 
 interface ConfigTemplate {
   id: number;
@@ -51,6 +52,15 @@ const Scenarios: React.FC = () => {
 
   // 批量选择
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
+
+  // XML 编辑器相关
+  const [xmlEditorVisible, setXmlEditorVisible] = useState(false);
+  const [xmlEditorContent, setXmlEditorContent] = useState('');
+  const [xmlEditorFilename, setXmlEditorFilename] = useState('');
+  const [xmlEditorSaving, setXmlEditorSaving] = useState(false);
+
+  // XML 文件上传
+  const [uploadFileList, setUploadFileList] = useState<UploadFile[]>([]);
 
   /**
    * 加载配置模板
@@ -379,6 +389,83 @@ const Scenarios: React.FC = () => {
   };
 
   /**
+   * 处理 XML 文件上传
+   */
+  const handleXmlFileUpload = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      const xmlContent = e.target?.result as string;
+      const filename = file.name;
+
+      try {
+        // 直接保存 XML 到后端
+        // 后端采用宽松策略：即使格式有问题也会保存
+        const response = await apiService.saveScenarioXml(filename, xmlContent);
+        if (response.success) {
+          // 显示成功消息和警告（如果有）
+          if (response.warning) {
+            message.warning(`场景文件 ${filename} 已上传，但存在警告：${response.warning}`);
+          } else {
+            message.success(`场景文件 ${filename} 已上传`);
+          }
+          setUploadFileList([]);
+          await loadScenarios();
+        } else {
+          message.error(response.error || '上传失败');
+        }
+      } catch (error: any) {
+        message.error(`上传失败: ${error.message}`);
+      }
+    };
+    reader.readAsText(file);
+
+    // 阻止自动上传
+    return false;
+  };
+
+  /**
+   * 打开 XML 编辑器
+   */
+  const handleEditXml = async (filename: string) => {
+    try {
+      const response = await apiService.getScenarioXml(filename);
+      if (response.success && response.xml) {
+        setXmlEditorFilename(filename);
+        setXmlEditorContent(response.xml);
+        setXmlEditorVisible(true);
+      }
+    } catch (error: any) {
+      message.error(`${t('common.failed')}: ${error.message}`);
+    }
+  };
+
+  /**
+   * 保存编辑的 XML
+   */
+  const handleSaveXml = async () => {
+    try {
+      setXmlEditorSaving(true);
+      const response = await apiService.saveScenarioXml(xmlEditorFilename, xmlEditorContent);
+      if (response.success) {
+        // 显示成功消息和警告（如果有）
+        if (response.warning) {
+          message.warning(`${t('common.saveSuccess')}，但存在警告：${response.warning}`);
+        } else {
+          message.success(t('common.saveSuccess'));
+        }
+        setXmlEditorVisible(false);
+        await loadScenarios();
+      } else {
+        message.error(response.error || t('common.saveFailed'));
+      }
+    } catch (error: any) {
+      message.error(`${t('common.saveFailed')}: ${error.message}`);
+    } finally {
+      setXmlEditorSaving(false);
+    }
+  };
+
+  /**
    * 加载可用机器列表
    */
   const loadMachines = async () => {
@@ -567,7 +654,7 @@ const Scenarios: React.FC = () => {
       title: t('common.actions'),
       key: 'action',
       render: (_: any, record: ScenarioFile) => (
-        <Space size="small">
+        <Space size="small" wrap>
           <Button
             type="primary"
             size="small"
@@ -581,6 +668,9 @@ const Scenarios: React.FC = () => {
           </Button>
           <Button size="small" icon={<EditOutlined />} onClick={() => handleEdit(record.filename)}>
             {t('common.edit')}
+          </Button>
+          <Button size="small" icon={<CodeOutlined />} onClick={() => handleEditXml(record.filename)}>
+            编辑XML
           </Button>
           <Button size="small" icon={<CopyOutlined />} onClick={() => handleDuplicate(record.filename)}>
             {t('scenarios.duplicate')}
@@ -609,6 +699,17 @@ const Scenarios: React.FC = () => {
                 {t('scenarios.batchDelete')} ({selectedRowKeys.length})
               </Button>
             )}
+            <Upload
+              accept=".xml"
+              fileList={uploadFileList}
+              beforeUpload={handleXmlFileUpload}
+              onRemove={() => setUploadFileList([])}
+              maxCount={1}
+            >
+              <Button icon={<UploadOutlined />}>
+                上传场景文件
+              </Button>
+            </Upload>
             <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
               {t('scenarios.newScenario')}
             </Button>
@@ -1049,6 +1150,56 @@ const Scenarios: React.FC = () => {
             </List.Item>
           )}
         />
+      </Modal>
+
+      {/* XML 编辑器弹窗 */}
+      <Modal
+        title={
+          <Space>
+            <CodeOutlined />
+            <span>编辑 XML：{xmlEditorFilename}</span>
+          </Space>
+        }
+        open={xmlEditorVisible}
+        onCancel={() => {
+          setXmlEditorVisible(false);
+          setXmlEditorContent('');
+          setXmlEditorFilename('');
+        }}
+        onOk={handleSaveXml}
+        confirmLoading={xmlEditorSaving}
+        width={1000}
+        okText={t('common.save')}
+        cancelText={t('common.cancel')}
+      >
+        <Input.TextArea
+          value={xmlEditorContent}
+          onChange={(e) => setXmlEditorContent(e.target.value)}
+          rows={25}
+          style={{
+            fontFamily: 'Consolas, Monaco, monospace',
+            fontSize: '12px',
+            lineHeight: '1.5',
+          }}
+          placeholder="在此编辑 XML 内容..."
+        />
+        <div style={{ marginTop: 12, padding: 12, background: '#f5f5f5', borderRadius: 4 }}>
+          <Space direction="vertical" size={4}>
+            <div style={{ fontWeight: 'bold', color: '#1890ff' }}>💡 提示：</div>
+            <div style={{ fontSize: '12px', color: '#666' }}>
+              • 支持直接编辑 SIPp XML 场景文件
+            </div>
+            <div style={{ fontSize: '12px', color: '#666' }}>
+              • 保存时不进行严格的 XML 格式检验
+            </div>
+            <div style={{ fontSize: '12px', color: '#666' }}>
+              • 即使格式有误也会保存文件，系统会尝试解析或使用默认值
+            </div>
+            <div style={{ fontSize: '12px', color: '#666' }}>
+              • 不支持的参数将被自动忽略
+            </div>
+          </Space>
+        </div>
       </Modal>
     </div>
   );

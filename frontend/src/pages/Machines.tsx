@@ -483,13 +483,6 @@ const Machines: React.FC = () => {
       sorter: (a, b) => a.totalTasks - b.totalTasks,
     },
     {
-      title: 'SIPp版本',
-      dataIndex: 'sippVersion',
-      key: 'sippVersion',
-      width: 120,
-      render: (version?: string) => <Text type="secondary">{version || '-'}</Text>,
-    },
-    {
       title: '最后心跳',
       dataIndex: 'lastHeartbeat',
       key: 'lastHeartbeat',
@@ -543,21 +536,8 @@ const Machines: React.FC = () => {
       (sum, tasks) => sum + tasks.length,
       0
     );
-    
-    // 只计算有有效 CPU/内存数据的机器
-    const machinesWithCpu = machines.filter((m) => typeof m.cpuUsage === 'number' && !isNaN(m.cpuUsage));
-    const machinesWithMemory = machines.filter((m) => typeof m.memoryUsage === 'number' && !isNaN(m.memoryUsage));
-    
-    const avgCpu =
-      machinesWithCpu.length > 0
-        ? machinesWithCpu.reduce((sum, m) => sum + m.cpuUsage!, 0) / machinesWithCpu.length
-        : 0;
-    const avgMemory =
-      machinesWithMemory.length > 0
-        ? machinesWithMemory.reduce((sum, m) => sum + m.memoryUsage!, 0) / machinesWithMemory.length
-        : 0;
 
-    return { online, offline, totalRunningTasks, avgCpu, avgMemory };
+    return { online, offline, totalRunningTasks };
   }, [machines, runningTasksByMachine]);
 
   /**
@@ -664,12 +644,12 @@ const Machines: React.FC = () => {
       `}</style>
       {/* 统计卡片 */}
       <Row gutter={16} style={{ marginBottom: '16px' }}>
-        <Col span={6}>
+        <Col span={8}>
           <Card>
             <Statistic title="总节点数" value={machines.length} prefix={<ApiOutlined />} />
           </Card>
         </Col>
-        <Col span={6}>
+        <Col span={8}>
           <Card>
             <Statistic
               title="在线节点"
@@ -679,21 +659,13 @@ const Machines: React.FC = () => {
             />
           </Card>
         </Col>
-        <Col span={6}>
+        <Col span={8}>
           <Card>
             <Statistic
               title="运行任务"
               value={statistics.totalRunningTasks}
               valueStyle={{ color: '#1890ff' }}
               prefix={<PlayCircleOutlined />}
-            />
-          </Card>
-        </Col>
-        <Col span={6}>
-          <Card>
-            <Statistic
-              title="平均负载 (CPU / 内存)"
-              value={`${isNaN(statistics.avgCpu) ? '0.0' : statistics.avgCpu.toFixed(1)}% / ${isNaN(statistics.avgMemory) ? '0.0' : statistics.avgMemory.toFixed(1)}%`}
             />
           </Card>
         </Col>

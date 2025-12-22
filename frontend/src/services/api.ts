@@ -120,6 +120,13 @@ class ApiService {
   }
 
   /**
+   * 保存场景的 XML 内容（上传或编辑后保存）
+   */
+  async saveScenarioXml(filename: string, xml: string): Promise<ApiResponse> {
+    return this.client.post('/scenarios/xml', { filename, xml });
+  }
+
+  /**
    * 删除场景
    */
   async deleteScenario(filename: string): Promise<ApiResponse> {

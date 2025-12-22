@@ -338,7 +338,6 @@ export interface MachineInfo {
   ipAddress: string;
   apiPort: number;
   role: 'master' | 'slave';
-  sippVersion?: string;
   status: 'online' | 'offline' | 'busy';
   cpuUsage?: number;
   memoryUsage?: number;

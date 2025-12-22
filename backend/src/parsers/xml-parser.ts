@@ -121,7 +121,7 @@ export class XmlParser {
   async parseString(xml: string): Promise<Scenario> {
     try {
       const result = await this.parser.parseStringPromise(xml);
-      return this.normalizeScenario(result);
+      return this.normalizeScenario(result, xml);
     } catch (error) {
       logger.error('Error parsing XML string:', error);
       throw error;
@@ -129,9 +129,42 @@ export class XmlParser {
   }
 
   /**
-   * 标准化场景对象
+   * 从XML字符串中提取消息元素的原始顺序
+   * 通过正则扫描XML标签，构建顺序映射
    */
-  private normalizeScenario(raw: any): Scenario {
+  private extractMessageOrder(xml: string): Array<{ type: string; index: number }> {
+    const order: Array<{ type: string; index: number }> = [];
+    const messageTypes = ['send', 'recv', 'pause', 'nop', 'sendcmd', 'recvcmd', 'action', 'label'];
+
+    // 构建正则：匹配开始标签（自闭合或非自闭合）
+    // 例如：<send>, <send >, <send/>, <send >
+    const tagPattern = new RegExp(`<(${messageTypes.join('|')})(\\s|>|/)`, 'g');
+
+    let match;
+    const typeCounters: Record<string, number> = {};
+
+    // 初始化计数器
+    messageTypes.forEach(type => {
+      typeCounters[type] = 0;
+    });
+
+    // 按XML出现顺序记录每个元素类型及其索引
+    while ((match = tagPattern.exec(xml)) !== null) {
+      const type = match[1];
+      order.push({
+        type,
+        index: typeCounters[type],
+      });
+      typeCounters[type]++;
+    }
+
+    return order;
+  }
+
+  /**
+   * 标准化场景对象（保留XML原始顺序）
+   */
+  private normalizeScenario(raw: any, originalXml?: string): Scenario {
     const scenario: Scenario = {
       name: raw.name || 'Unnamed Scenario',
       messages: [],
@@ -139,20 +172,36 @@ export class XmlParser {
       init: raw.init ? this.ensureArray(raw.init) : [],
     };
 
-    // 解析消息序列
+    // 按类型解析所有消息到临时map
+    const messagesByType: Record<string, ScenarioMessage[]> = {};
     const messageKeys = ['send', 'recv', 'pause', 'nop', 'sendcmd', 'recvcmd', 'action', 'label'];
 
     for (const key of messageKeys) {
       if (raw[key]) {
         const messages = this.ensureArray(raw[key]);
-        messages.forEach((msg: any) => {
-          scenario.messages.push(this.normalizeMessage(key as MessageType, msg));
-        });
+        messagesByType[key] = messages.map((msg: any) =>
+          this.normalizeMessage(key as MessageType, msg)
+        );
       }
     }
 
-    // 按照XML中的顺序排序（这里简化处理，实际需要根据XML顺序）
-    // 可以通过记录解析顺序来实现
+    // 如果提供了原始XML，按原始顺序重组消息
+    if (originalXml) {
+      const order = this.extractMessageOrder(originalXml);
+
+      for (const { type, index } of order) {
+        if (messagesByType[type] && messagesByType[type][index]) {
+          scenario.messages.push(messagesByType[type][index]);
+        }
+      }
+    } else {
+      // 兼容旧逻辑：如果没有原始XML，按类型顺序添加
+      for (const key of messageKeys) {
+        if (messagesByType[key]) {
+          scenario.messages.push(...messagesByType[key]);
+        }
+      }
+    }
 
     return scenario;
   }
