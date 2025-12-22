@@ -218,14 +218,22 @@ export class HeartbeatService {
         encoding: 'utf-8',
         timeout: 3000,
       });
+
+      logger.debug(`SIPp version output (first 200 chars): ${output.substring(0, 200)}`);
+
       // 匹配格式: "SIPp v3.7.5-20-g66074c1-TLS-PCAP-SHA256"
       const match = output.match(/SIPp\s+v(\S+)/i);
       if (match) {
         // 移除末尾的点号（如果有）
-        return match[1].replace(/\.$/, '');
+        const version = match[1].replace(/\.$/, '');
+        logger.info(`SIPp version detected: ${version}`);
+        return version;
       }
+
+      logger.warn('Failed to parse SIPp version from output');
       return 'unknown';
-    } catch {
+    } catch (error: any) {
+      logger.error('Failed to execute sipp -v:', { error: error.message });
       return 'unknown';
     }
   }

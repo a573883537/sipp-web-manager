@@ -108,22 +108,32 @@ class SippWebManagerApp {
    * 清理启动前残留的运行中任务
    *
    * Kernel 风格设计：
-   * - 简化策略：服务重启时不尝试恢复进程，统一清理所有残留
-   * - 数据结构驱动：status='RUNNING' → 残留任务，直接清理
+   * - 简化策略：服务重启时不尝试恢复进程，统一清理本节点残留
+   * - 数据结构驱动：status='RUNNING' && machine_id=当前节点 → 残留任务
    * - 最小复杂度：消除"恢复"、"接管"、"孤儿"等特殊情况
+   * - 不影响其他节点：仅清理本节点任务，不影响在其他节点运行的任务
    */
   private async cleanupResidualTasks(): Promise<void> {
     try {
-      const runningTasks = await taskHistoryRepository.findByStatus('RUNNING');
+      const currentMachineId = config.node.machineId;
+      const allRunningTasks = await taskHistoryRepository.findByStatus('RUNNING');
 
-      if (runningTasks.length === 0) {
-        logger.info('No residual running tasks to clean up');
+      // 过滤出当前节点的任务
+      const residualTasks = allRunningTasks.filter(
+        task => task.machine_id === currentMachineId
+      );
+
+      if (residualTasks.length === 0) {
+        logger.info(`No residual running tasks to clean up for ${currentMachineId}`);
+        if (allRunningTasks.length > 0) {
+          logger.info(`${allRunningTasks.length} tasks running on other nodes (not cleaned)`);
+        }
         return;
       }
 
-      logger.info(`Found ${runningTasks.length} residual running tasks, cleaning up...`);
+      logger.info(`Found ${residualTasks.length} residual running tasks on ${currentMachineId}, cleaning up...`);
 
-      for (const task of runningTasks) {
+      for (const task of residualTasks) {
         // 如果进程还在运行，杀掉它
         if (task.pid && this.isProcessAlive(task.pid)) {
           logger.info(`Killing residual SIPp process ${task.pid} for task ${task.id}`);
@@ -145,13 +155,13 @@ class SippWebManagerApp {
         await taskHistoryRepository.update(task.id, {
           status: 'FAILED',
           end_time: Date.now(),
-          error: 'Service restarted, residual task cleaned up',
+          error: `Service restarted on ${currentMachineId}, residual task cleaned up`,
         });
 
-        logger.info(`Task ${task.id} marked as FAILED (residual cleanup)`);
+        logger.info(`Task ${task.id} marked as FAILED (residual cleanup on ${currentMachineId})`);
       }
 
-      logger.info(`Cleaned up ${runningTasks.length} residual tasks`);
+      logger.info(`Cleaned up ${residualTasks.length} residual tasks on ${currentMachineId}`);
     } catch (error: any) {
       logger.error('Failed to clean up residual tasks:', { error: error.message });
     }

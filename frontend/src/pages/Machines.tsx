@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Card,
   Table,
@@ -26,6 +26,7 @@ import {
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { apiService } from '@/services/api';
+import { wsService } from '@/services/websocket';
 import type { MachineInfo } from '@/types';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
@@ -477,17 +478,58 @@ const Machines: React.FC = () => {
   }, [machines, runningTasksByMachine]);
 
   /**
+   * 处理WebSocket推送的任务统计数据
+   */
+  const handleTaskStatsUpdate = useCallback((data: any) => {
+    if (!data || !data.tasks) return;
+
+    // 更新运行中任务的统计数据
+    setRunningTasksByMachine((prev) => {
+      const updated = { ...prev };
+
+      // 遍历所有推送的任务统计
+      data.tasks.forEach((taskUpdate: any) => {
+        const { taskId, stats } = taskUpdate;
+
+        // 找到该任务所在的机器
+        for (const machineId in updated) {
+          const tasks = updated[machineId];
+          const taskIndex = tasks.findIndex((t: any) => t.id === taskId);
+
+          if (taskIndex !== -1) {
+            // 更新该任务的统计数据
+            updated[machineId] = [...tasks];
+            updated[machineId][taskIndex] = {
+              ...tasks[taskIndex],
+              stats,
+            };
+            break;
+          }
+        }
+      });
+
+      return updated;
+    });
+  }, []);
+
+  /**
    * 初始化加载
    */
   useEffect(() => {
     loadMachines();
+
+    // 监听WebSocket任务统计数据更新
+    wsService.on('tasks:stats', handleTaskStatsUpdate);
 
     // 自动刷新（每10秒）
     const interval = setInterval(() => {
       loadMachines();
     }, 10000);
 
-    return () => clearInterval(interval);
+    return () => {
+      wsService.off('tasks:stats', handleTaskStatsUpdate);
+      clearInterval(interval);
+    };
   }, []);
 
   return (
