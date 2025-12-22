@@ -89,48 +89,7 @@ CREATE TABLE IF NOT EXISTS config_templates (
 -- Insert Sample Data
 -- ============================================
 
--- Sample Scenario
-INSERT IGNORE INTO scenarios (filename, name, description, messages)
-VALUES (
-    'example-uac.xml',
-    'Basic UAC Example',
-    'Basic UAC call flow example',
-    JSON_ARRAY(
-        JSON_OBJECT('type', 'send', 'cdata', 'INVITE sip:[service]@[remote_ip]:[remote_port] SIP/2.0\nVia: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]\nFrom: sipp <sip:sipp@[local_ip]:[local_port]>;tag=[pid]SIPpTag00[call_number]\nTo: [service] <sip:[service]@[remote_ip]:[remote_port]>\nCall-ID: [call_id]\nCSeq: 1 INVITE\nContact: sip:sipp@[local_ip]:[local_port]\nMax-Forwards: 70\nContent-Type: application/sdp\nContent-Length: [len]\n\nv=0\no=user1 53655765 2353687637 IN IP[local_ip_type] [local_ip]\ns=-\nc=IN IP[media_ip_type] [media_ip]\nt=0 0\nm=audio [media_port] RTP/AVP 0\na=rtpmap:0 PCMU/8000'),
-        JSON_OBJECT('type', 'recv', 'response', '100', 'optional', true),
-        JSON_OBJECT('type', 'recv', 'response', '180', 'optional', true),
-        JSON_OBJECT('type', 'recv', 'response', '200', 'rtd', true),
-        JSON_OBJECT('type', 'send', 'cdata', 'ACK sip:[service]@[remote_ip]:[remote_port] SIP/2.0\nVia: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]\nFrom: sipp <sip:sipp@[local_ip]:[local_port]>;tag=[pid]SIPpTag00[call_number]\nTo: [service] <sip:[service]@[remote_ip]:[remote_port]>[peer_tag_param]\nCall-ID: [call_id]\nCSeq: 1 ACK\nContact: sip:sipp@[local_ip]:[local_port]\nMax-Forwards: 70\nContent-Length: 0'),
-        JSON_OBJECT('type', 'pause', 'milliseconds', 3000),
-        JSON_OBJECT('type', 'send', 'cdata', 'BYE sip:[service]@[remote_ip]:[remote_port] SIP/2.0\nVia: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]\nFrom: sipp <sip:sipp@[local_ip]:[local_port]>;tag=[pid]SIPpTag00[call_number]\nTo: [service] <sip:[service]@[remote_ip]:[remote_port]>[peer_tag_param]\nCall-ID: [call_id]\nCSeq: 2 BYE\nContact: sip:sipp@[local_ip]:[local_port]\nMax-Forwards: 70\nContent-Length: 0'),
-        JSON_OBJECT('type', 'recv', 'response', '200')
-    )
-);
-
--- Sample Injection File
-INSERT IGNORE INTO injection_files (filename, description, content, field_count, row_count, read_mode)
-VALUES (
-    'users_4000-4010.csv',
-    'Extension 4000-4010 authentication info example',
-    'SEQUENTIAL
-# [field0];[field1];[field2]
-4000;password4000;192.168.1.100
-4001;password4001;192.168.1.100
-4002;password4002;192.168.1.100
-4003;password4003;192.168.1.100
-4004;password4004;192.168.1.100
-4005;password4005;192.168.1.100
-4006;password4006;192.168.1.100
-4007;password4007;192.168.1.100
-4008;password4008;192.168.1.100
-4009;password4009;192.168.1.100
-4010;password4010;192.168.1.100',
-    3,
-    11,
-    'SEQUENTIAL'
-);
-
--- Sample Config Template
+-- Default Config Template
 INSERT IGNORE INTO config_templates (name, description, config, is_default)
 VALUES (
     'Default Config',
