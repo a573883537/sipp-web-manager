@@ -318,27 +318,15 @@ class SippWebManagerApp {
       });
     });
 
-    // SPA路由回退（开发环境）
-    if (config.server.isDevelopment) {
+    // SPA 路由回退：所有非 API 路径返回 index.html（开发/生产环境通用）
+    const frontendIndexPath = path.join(__dirname, '../../frontend/dist/index.html');
+    if (fs.existsSync(frontendIndexPath)) {
       this.app.get('*', (_req, res) => {
-        res.json({
-          message: 'SIPp Web Manager API',
-          version: '1.0.0',
-          endpoints: {
-            health: '/health',
-            api: '/api',
-            websocket: `ws://localhost:${config.server.port}`,
-          },
-        });
+        res.sendFile(frontendIndexPath);
       });
+      logger.info('SPA fallback route configured');
     } else {
-      // 生产环境：所有其他请求返回前端index.html
-      const frontendIndexPath = path.join(__dirname, '../../frontend/dist/index.html');
-      if (fs.existsSync(frontendIndexPath)) {
-        this.app.get('*', (_req, res) => {
-          res.sendFile(frontendIndexPath);
-        });
-      }
+      logger.warn('Frontend build not found, SPA fallback disabled');
     }
   }
 

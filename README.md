@@ -77,18 +77,21 @@ SIPp Web Manager 是一个基于主从集群架构的 Web SIPp 测试管理平�
 git clone <repository-url> /opt/sipp-web-manager
 cd /opt/sipp-web-manager
 
-# 2. 运行部署脚本
-./deploy-master.sh
+# 2. 配置数据库连接（根据实际情况修改）
+export DB_HOST=localhost
+export DB_PORT=3306
+export DB_USER=root
+export DB_PASSWORD=your_password
+export DB_NAME=sipp_manager
 
-# 根据提示：
-# - 首次运行会生成 .env 文件
-# - 编辑 .env 配置数据库等信息
-# - 重新运行脚本完成部署
-# - 选择是否创建 systemd 服务
+# 3. 运行部署脚本
+./deploy.sh master
 
-# 3. 启动服务
-sudo systemctl start sipp-web-manager
+# 4. 启动服务
+./service.sh start
+
 # 或手动启动: cd backend && npm start
+# 生产环境建议使用 PM2: pm2 start dist/index.js --name sipp-manager-master
 ```
 
 ### 从机部署
@@ -98,20 +101,38 @@ sudo systemctl start sipp-web-manager
 git clone <repository-url> /opt/sipp-web-manager
 cd /opt/sipp-web-manager
 
-# 2. 运行部署脚本
-./deploy-slave.sh
-
-# 根据提示配置：
-# - MACHINE_ID: slave-01 (每台从机唯一)
-# - MACHINE_NAME: 测试节点01
-# - MASTER_HOST: 主机IP地址
-# - DB_HOST: 主机数据库IP
-# - DB_PASSWORD: 数据库密码
+# 2. 运行部署脚本（指定主机IP）
+./deploy.sh slave <主机IP地址>
+# 例如: ./deploy.sh slave 192.168.1.100
 
 # 3. 启动服务
-sudo systemctl start sipp-web-manager-slave
+./service.sh start
+
 # 或手动启动: cd backend && npm start
+# 生产环境建议使用 PM2: pm2 start dist/index.js --name sipp-manager-slave-01
 ```
+
+### 服务管理
+
+部署完成后，使用服务管理脚本控制服务：
+
+```bash
+./service.sh start      # 启动服务
+./service.sh stop       # 停止服务
+./service.sh restart    # 重启服务
+./service.sh status     # 查看状态
+./service.sh logs       # 查看实时日志
+```
+
+**自动进程管理：**
+- 脚本自动检测 PM2，如果可用则使用 PM2 管理（推荐生产环境）
+- 未安装 PM2 时使用 nohup 后台运行
+- PID 文件: `backend/.service.pid`
+- 日志文件: `backend/logs/app.log`
+
+### 升级部署
+
+详细升级流程请参阅 [UPGRADE.md](UPGRADE.md)
 
 ## 🎯 核心功能
 
