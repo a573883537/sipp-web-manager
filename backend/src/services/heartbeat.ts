@@ -1,0 +1,215 @@
+import { config } from '../config';
+import { logger } from '../utils/logger';
+import { sippProcessManager } from './sipp-process';
+import os from 'os';
+import { execSync } from 'child_process';
+import axios from 'axios';
+
+/**
+ * 从机心跳服务
+ * 职责：定期通过HTTP API向主机上报本机状态
+ *
+ * Kernel 风格设计：
+ * - 数据结构驱动：状态信息统一格式
+ * - API通信：去除数据库依赖，仅通过主机API交互
+ * - 自动恢复：网络故障自动重试
+ * - 最小复杂度：仅 3 个方法（start/stop/report）
+ */
+export class HeartbeatService {
+  private timer: NodeJS.Timeout | null = null;
+  private readonly machineId = config.node.machineId;
+  private readonly machineName = config.node.machineName;
+  private readonly interval = config.node.heartbeatInterval;
+  private readonly masterApiUrl: string;
+
+  constructor() {
+    // 构建主机API地址
+    this.masterApiUrl = `http://${config.node.masterHost}:${config.node.masterPort}/api`;
+  }
+
+  /**
+   * 启动心跳服务
+   */
+  start(): void {
+    if (config.node.role !== 'slave') {
+      logger.info('Heartbeat service skipped: not a slave node');
+      return;
+    }
+
+    // 首次注册
+    this.register().catch(err => {
+      logger.error('Failed to register machine:', err);
+    });
+
+    // 定期心跳
+    this.timer = setInterval(() => {
+      this.sendHeartbeat().catch(err => {
+        logger.error('Heartbeat failed:', err);
+      });
+    }, this.interval);
+
+    logger.info(`Heartbeat service started: ${this.machineId} (interval: ${this.interval}ms)`);
+    logger.info(`Master API: ${this.masterApiUrl}`);
+  }
+
+  /**
+   * 停止心跳服务
+   */
+  stop(): void {
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
+
+    // 标记离线
+    this.setOffline().catch(err => {
+      logger.error('Failed to set offline:', err);
+    });
+
+    logger.info('Heartbeat service stopped');
+  }
+
+  /**
+   * 注册从机（首次或重启）
+   */
+  private async register(): Promise<void> {
+    try {
+      const ip = this.getLocalIP();
+      const sippVersion = this.getSippVersion();
+
+      const payload = {
+        id: this.machineId,
+        name: this.machineName,
+        ipAddress: ip,
+        apiPort: config.server.port,
+        role: 'slave' as const,
+        sippVersion,
+        status: 'online' as const,
+        lastHeartbeat: Date.now(),
+      };
+
+      await axios.post(`${this.masterApiUrl}/machines/heartbeat`, payload, {
+        timeout: 5000,
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      logger.info(`Machine registered: ${this.machineId} (${ip}:${config.server.port})`);
+    } catch (error: any) {
+      logger.error('Failed to register machine:', error.message || error);
+      throw error;
+    }
+  }
+
+  /**
+   * 发送心跳（更新状态）
+   */
+  private async sendHeartbeat(): Promise<void> {
+    try {
+      const stats = this.getSystemStats();
+
+      // 从本地 sippProcessManager 获取运行任务数
+      const runningTasks = sippProcessManager.getRunningCount();
+
+      const payload = {
+        id: this.machineId,
+        status: 'online' as const,
+        cpuUsage: stats.cpu,
+        memoryUsage: stats.memory,
+        runningTasks,
+        lastHeartbeat: Date.now(),
+      };
+
+      await axios.post(`${this.masterApiUrl}/machines/heartbeat`, payload, {
+        timeout: 5000,
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      logger.debug(`Heartbeat sent: ${this.machineId} (CPU: ${stats.cpu}%, MEM: ${stats.memory}%, Tasks: ${runningTasks})`);
+    } catch (error: any) {
+      logger.error('Failed to send heartbeat:', error.message || error);
+      // 不抛出异常，允许下次重试
+    }
+  }
+
+  /**
+   * 标记离线
+   */
+  private async setOffline(): Promise<void> {
+    try {
+      const payload = {
+        id: this.machineId,
+        status: 'offline' as const,
+        lastHeartbeat: Date.now(),
+      };
+
+      await axios.post(`${this.masterApiUrl}/machines/heartbeat`, payload, {
+        timeout: 3000,
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      logger.info(`Machine marked as offline: ${this.machineId}`);
+    } catch (error: any) {
+      logger.error('Failed to set offline:', error.message || error);
+    }
+  }
+
+  /**
+   * 获取系统统计信息
+   */
+  private getSystemStats(): { cpu: number; memory: number } {
+    const cpus = os.cpus();
+    const totalMem = os.totalmem();
+    const freeMem = os.freemem();
+
+    // CPU 使用率（简化计算：1 - idle/total）
+    const cpuUsage = cpus.reduce((acc, cpu) => {
+      const total = Object.values(cpu.times).reduce((a, b) => a + b, 0);
+      const idle = cpu.times.idle;
+      return acc + (1 - idle / total) * 100;
+    }, 0) / cpus.length;
+
+    // 内存使用率
+    const memoryUsage = ((totalMem - freeMem) / totalMem) * 100;
+
+    return {
+      cpu: Math.round(cpuUsage * 100) / 100,
+      memory: Math.round(memoryUsage * 100) / 100,
+    };
+  }
+
+  /**
+   * 获取本地IP（优先内网地址）
+   */
+  private getLocalIP(): string {
+    const interfaces = os.networkInterfaces();
+
+    // 优先查找内网 IP（192.168.x.x 或 10.x.x.x）
+    for (const name of Object.keys(interfaces)) {
+      for (const iface of interfaces[name] || []) {
+        if (iface.family === 'IPv4' && !iface.internal) {
+          return iface.address;
+        }
+      }
+    }
+
+    return '127.0.0.1';
+  }
+
+  /**
+   * 获取 SIPp 版本
+   */
+  private getSippVersion(): string {
+    try {
+      const output = execSync(`${config.sipp.host === 'localhost' ? 'sipp' : config.sipp.host} -v 2>&1`, {
+        encoding: 'utf-8',
+        timeout: 3000,
+      });
+      const match = output.match(/SIPp\s+v(\S+)/i);
+      return match ? match[1] : 'unknown';
+    } catch {
+      return 'unknown';
+    }
+  }
+}
+
+export const heartbeatService = new HeartbeatService();

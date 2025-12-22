@@ -4,10 +4,12 @@ import { sippProcessManager } from '../services/sipp-process';
 import { xmlParser } from '../parsers/xml-parser';
 import { logger } from '../utils/logger';
 import { config } from '../config';
+import { query } from '../database';
 import { scenarioRepository } from '../database/scenario-repository';
 import { injectionFileService } from '../services/injection-file-service';
 import { taskHistoryRepository } from '../database/task-history-repository';
 import { configTemplateRepository } from '../database/config-template-repository';
+import { slaveManager } from '../services/slave-manager';
 import fs from 'fs/promises';
 import * as fsSync from 'fs';
 import path from 'path';
@@ -68,13 +70,14 @@ apiRouter.post('/sipp/disconnect', (_req: Request, res: Response) => {
 });
 
 /**
- * 启动SIPp测试
+ * 启动SIPp测试（支持分布式调度）
  */
 apiRouter.post('/sipp/start', async (req: Request, res: Response): Promise<void> => {
   try {
     const {
       taskId,
       scenarioFile,
+      machineId, // 新增：指定从机ID，不指定则自动选择
       rate = 10,
       users = 100,
       limit = 0,
@@ -120,7 +123,7 @@ apiRouter.post('/sipp/start', async (req: Request, res: Response): Promise<void>
       return;
     }
 
-    await sippProcessManager.start(taskId, scenarioFile, {
+    const options = {
       rate,
       users,
       limit,
@@ -146,22 +149,71 @@ apiRouter.post('/sipp/start', async (req: Request, res: Response): Promise<void>
       bindLocal,
       rsa,
       autoAnswer,
-    });
+    };
 
-    // 保存 pid 和 control_port 到数据库
-    const status = sippProcessManager.getStatus(taskId);
-    if (status) {
-      await taskHistoryRepository.update(taskId, {
-        pid: status.pid || undefined,
-        control_port: status.controlPort,
-        backend_pid: process.pid, // 保存当前后端进程 PID 用于孤儿检测
-      });
+    // 根据节点角色和 machineId 参数决定执行方式
+    let finalMachineId = config.node.role === 'master' ? 'master' : config.node.machineId;
+
+    if (config.node.role === 'master' && machineId) {
+      // 主机模式 + 指定从机：转发到指定从机
+      if (machineId !== 'master') {
+        await slaveManager.startTestOnSlave(machineId, taskId, scenarioFile, options);
+        finalMachineId = machineId;
+        logger.info(`Test dispatched to slave: ${machineId}`);
+      } else {
+        // 在主机本地执行
+        await sippProcessManager.start(taskId, scenarioFile, options);
+        const status = sippProcessManager.getStatus(taskId);
+        if (status) {
+          await taskHistoryRepository.update(taskId, {
+            pid: status.pid || undefined,
+            control_port: status.controlPort,
+            backend_pid: process.pid,
+          });
+        }
+      }
+    } else if (config.node.role === 'master' && !machineId) {
+      // 主机模式 + 未指定从机：自动选择最佳从机
+      const selectedSlave = await slaveManager.selectSlave();
+      if (selectedSlave) {
+        await slaveManager.startTestOnSlave(selectedSlave.id, taskId, scenarioFile, options);
+        finalMachineId = selectedSlave.id;
+        logger.info(`Test auto-dispatched to slave: ${selectedSlave.id}`);
+      } else {
+        // 无可用从机，主机本地执行（降级策略）
+        await sippProcessManager.start(taskId, scenarioFile, options);
+        const status = sippProcessManager.getStatus(taskId);
+        if (status) {
+          await taskHistoryRepository.update(taskId, {
+            pid: status.pid || undefined,
+            control_port: status.controlPort,
+            backend_pid: process.pid,
+          });
+        }
+        logger.warn('No available slaves, test running on master');
+      }
+    } else {
+      // 从机模式：直接本地执行
+      await sippProcessManager.start(taskId, scenarioFile, options);
+      const status = sippProcessManager.getStatus(taskId);
+      if (status) {
+        await taskHistoryRepository.update(taskId, {
+          pid: status.pid || undefined,
+          control_port: status.controlPort,
+          backend_pid: process.pid,
+        });
+      }
     }
+
+    // 更新任务的 machine_id
+    await taskHistoryRepository.update(taskId, {
+      machine_id: finalMachineId,
+    });
 
     res.json({
       success: true,
       message: 'SIPp test started successfully',
-      status,
+      machineId: finalMachineId,
       taskId,
     });
   } catch (error: any) {
@@ -1188,6 +1240,197 @@ apiRouter.use((error: Error, _req: Request, res: Response, _next: any) => {
     success: false,
     error: error.message,
   });
+});
+
+/**
+ * ==================== 从机管理 API（仅主机模式）====================
+ */
+
+/**
+ * 从机心跳上报
+ * POST /api/machines/heartbeat
+ * 接收从机发送的心跳数据并更新数据库
+ */
+apiRouter.post('/machines/heartbeat', async (req: Request, res: Response): Promise<void> => {
+  try {
+    if (config.node.role !== 'master') {
+      res.status(403).json({
+        success: false,
+        error: 'This API is only available on master node',
+      });
+      return;
+    }
+
+    const {
+      id,
+      name,
+      ipAddress,
+      apiPort,
+      role,
+      sippVersion,
+      status,
+      cpuUsage,
+      memoryUsage,
+      runningTasks,
+      lastHeartbeat,
+    } = req.body;
+
+    // 参数校验
+    if (!id || !status) {
+      res.status(400).json({
+        success: false,
+        error: 'Missing required fields: id, status',
+      });
+      return;
+    }
+
+    // 首次注册或更新状态
+    if (name && ipAddress !== undefined) {
+      // 完整注册（包含机器信息）
+      await query(`
+        INSERT INTO machines (
+          id, name, ip_address, api_port, role, sipp_version,
+          status, cpu_usage, memory_usage, running_tasks, last_heartbeat
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE
+          name = VALUES(name),
+          ip_address = VALUES(ip_address),
+          api_port = VALUES(api_port),
+          sipp_version = VALUES(sipp_version),
+          status = VALUES(status),
+          cpu_usage = VALUES(cpu_usage),
+          memory_usage = VALUES(memory_usage),
+          running_tasks = VALUES(running_tasks),
+          last_heartbeat = VALUES(last_heartbeat)
+      `, [
+        id,
+        name || id,
+        ipAddress || '0.0.0.0',
+        apiPort || 3000,
+        role || 'slave',
+        sippVersion || 'unknown',
+        status,
+        cpuUsage || null,
+        memoryUsage || null,
+        runningTasks || 0,
+        lastHeartbeat || Date.now(),
+      ]);
+    } else {
+      // 心跳更新（仅更新状态）
+      await query(`
+        UPDATE machines
+        SET
+          status = ?,
+          cpu_usage = ?,
+          memory_usage = ?,
+          running_tasks = ?,
+          last_heartbeat = ?
+        WHERE id = ?
+      `, [
+        status,
+        cpuUsage || null,
+        memoryUsage || null,
+        runningTasks || 0,
+        lastHeartbeat || Date.now(),
+        id,
+      ]);
+    }
+
+    // 同步更新 machines 表的 total_tasks（从 task_history 统计）
+    await query(`
+      UPDATE machines m
+      SET total_tasks = (
+        SELECT COUNT(*) FROM task_history WHERE machine_id = m.id
+      )
+      WHERE m.id = ?
+    `, [id]);
+
+    res.json({
+      success: true,
+      message: 'Heartbeat received',
+      machineId: id,
+    });
+
+    logger.debug(`Heartbeat received from ${id}: ${status}`);
+  } catch (error: any) {
+    logger.error('Failed to process heartbeat:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * 获取所有从机列表（包含离线）
+ */
+apiRouter.get('/machines', async (_req: Request, res: Response): Promise<void> => {
+  try {
+    if (config.node.role !== 'master') {
+      res.status(403).json({
+        success: false,
+        error: 'This API is only available on master node',
+      });
+      return;
+    }
+
+    const slaves = await slaveManager.getAvailableSlaves();
+    res.json({
+      success: true,
+      machines: slaves,
+    });
+  } catch (error: any) {
+    logger.error('Failed to get machines:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * 获取可用从机列表（仅在线）
+ */
+apiRouter.get('/machines/available', async (_req: Request, res: Response): Promise<void> => {
+  try {
+    if (config.node.role !== 'master') {
+      res.status(403).json({
+        success: false,
+        error: 'This API is only available on master node',
+      });
+      return;
+    }
+
+    const slaves = await slaveManager.getAvailableSlaves();
+    res.json({
+      success: true,
+      machines: slaves,
+    });
+  } catch (error: any) {
+    logger.error('Failed to get available machines:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * 健康检查指定从机
+ */
+apiRouter.post('/machines/:id/health-check', async (req: Request, res: Response): Promise<void> => {
+  try {
+    if (config.node.role !== 'master') {
+      res.status(403).json({
+        success: false,
+        error: 'This API is only available on master node',
+      });
+      return;
+    }
+
+    const { id } = req.params;
+    const healthy = await slaveManager.checkSlaveHealth(id);
+
+    res.json({
+      success: true,
+      healthy,
+      machineId: id,
+    });
+  } catch (error: any) {
+    logger.error('Failed to check slave health:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
 });
 
 export default apiRouter;

@@ -327,3 +327,23 @@ export interface TestTask {
   };
   error?: string;
 }
+
+/**
+ * 从机信息
+ */
+export interface MachineInfo {
+  id: string;
+  name: string;
+  ipAddress: string;
+  apiPort: number;
+  role: 'master' | 'slave';
+  sippVersion?: string;
+  status: 'online' | 'offline' | 'busy';
+  cpuUsage?: number;
+  memoryUsage?: number;
+  runningTasks: number;
+  totalTasks: number;
+  lastHeartbeat: number;
+  createdAt?: string;
+  updatedAt?: string;
+}

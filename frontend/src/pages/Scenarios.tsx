@@ -4,7 +4,7 @@ import { PlusOutlined, EditOutlined, DeleteOutlined, EyeOutlined, PlayCircleOutl
 import { useTranslation } from 'react-i18next';
 import { apiService } from '@/services/api';
 import { useAppStore } from '@/stores/useAppStore';
-import type { ScenarioFile, Scenario, TestTask } from '@/types';
+import type { ScenarioFile, Scenario, TestTask, MachineInfo } from '@/types';
 import { TestTaskStatus } from '@/types';
 import ScenarioForm from '@/components/ScenarioForm';
 
@@ -44,6 +44,10 @@ const Scenarios: React.FC = () => {
 
   // 注入文件列表
   const [injectionFiles, setInjectionFiles] = useState<any[]>([]);
+
+  // 机器列表
+  const [machines, setMachines] = useState<MachineInfo[]>([]);
+  const [machinesLoading, setMachinesLoading] = useState(false);
 
   // 批量选择
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
@@ -375,14 +379,62 @@ const Scenarios: React.FC = () => {
   };
 
   /**
+   * 加载可用机器列表
+   */
+  const loadMachines = async () => {
+    setMachinesLoading(true);
+    try {
+      const response = await apiService.getAvailableMachines();
+      if (response.success && response.machines) {
+        // 添加主机选项
+        const allMachines = [
+          {
+            id: 'master',
+            name: '主控节点（本地）',
+            ipAddress: 'localhost',
+            apiPort: 3000,
+            role: 'master' as const,
+            status: 'online' as const,
+            runningTasks: 0,
+            totalTasks: 0,
+            lastHeartbeat: Date.now(),
+          },
+          ...response.machines,
+        ];
+        setMachines(allMachines);
+      }
+    } catch (error: any) {
+      console.error('Failed to load machines:', error);
+      // 加载失败时至少提供主机选项
+      setMachines([{
+        id: 'master',
+        name: '主控节点（本地）',
+        ipAddress: 'localhost',
+        apiPort: 3000,
+        role: 'master' as const,
+        status: 'online' as const,
+        runningTasks: 0,
+        totalTasks: 0,
+        lastHeartbeat: Date.now(),
+      }]);
+    } finally {
+      setMachinesLoading(false);
+    }
+  };
+
+  /**
    * 打开启动测试弹窗
    */
   const handleStartTest = async (scenario: ScenarioFile) => {
     setSelectedScenario(scenario);
 
+    // 加载可用机器列表
+    await loadMachines();
+
     // 默认配置
     const defaultConfig = {
       scenarioFile: scenario.filename,
+      machineId: undefined, // 默认不指定，由系统自动选择
       remoteHost: import.meta.env.VITE_DEFAULT_REMOTE_HOST || '127.0.0.1',
       remotePort: parseInt(import.meta.env.VITE_DEFAULT_REMOTE_PORT || '5060'),
       localPort: parseInt(import.meta.env.VITE_DEFAULT_LOCAL_PORT || '5061'),
@@ -676,6 +728,35 @@ const Scenarios: React.FC = () => {
                 forceRender: true,
                 children: (
                   <>
+                    <Form.Item
+                      name="machineId"
+                      label="执行机器"
+                      tooltip="选择执行测试的机器节点，不选择则由系统自动选择最佳节点"
+                    >
+                      <Select
+                        placeholder="自动选择（推荐）"
+                        loading={machinesLoading}
+                        allowClear
+                      >
+                        {machines.map(machine => (
+                          <Select.Option key={machine.id} value={machine.id}>
+                            <Space>
+                              <span>{machine.name}</span>
+                              {machine.role === 'master' && <Tag color="blue">主机</Tag>}
+                              <Tag color={machine.status === 'online' ? 'success' : 'default'}>
+                                {machine.status === 'online' ? '在线' : '离线'}
+                              </Tag>
+                              {machine.status === 'online' && (
+                                <span style={{ color: '#999', fontSize: '12px' }}>
+                                  运行中: {machine.runningTasks}
+                                </span>
+                              )}
+                            </Space>
+                          </Select.Option>
+                        ))}
+                      </Select>
+                    </Form.Item>
+
                     <Form.Item
                       name="remoteHost"
                       label={t('startTest.remoteHost')}

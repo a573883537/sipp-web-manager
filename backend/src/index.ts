@@ -5,6 +5,7 @@ import { config, validateConfig } from './config';
 import { logger } from './utils/logger';
 import { sippClient } from './services/sipp-client';
 import { sippProcessManager } from './services/sipp-process';
+import { heartbeatService } from './services/heartbeat';
 import { WebSocketService } from './websocket';
 import { testConnection, initializeDatabase } from './database';
 import { taskHistoryRepository } from './database/task-history-repository';
@@ -336,6 +337,7 @@ class SippWebManagerApp {
 ║         SIPp Web Manager Backend Service                 ║
 ║                                                           ║
 ║  Environment:  ${config.server.env.padEnd(42)} ║
+║  Node Role:    ${config.node.role.padEnd(42)} ║
 ║  HTTP Server:  http://localhost:${config.server.port.toString().padEnd(29)} ║
 ║  WebSocket:    ws://localhost:${config.server.port.toString().padEnd(31)} ║
 ║  SIPp Host:    ${config.sipp.host}:${config.sipp.controlPort.toString().padEnd(35)} ║
@@ -345,6 +347,10 @@ class SippWebManagerApp {
 ║                                                           ║
 ╚═══════════════════════════════════════════════════════════╝
         `);
+
+        // 启动心跳服务（仅从机模式）
+        heartbeatService.start();
+
         resolve();
       });
     });
@@ -357,7 +363,10 @@ class SippWebManagerApp {
   async shutdown(): Promise<void> {
     logger.info('Shutting down gracefully...');
 
-    // 1. 停止所有运行中的 SIPp 进程
+    // 1. 停止心跳服务
+    heartbeatService.stop();
+
+    // 2. 停止所有运行中的 SIPp 进程
     try {
       logger.info('Stopping all SIPp processes...');
       await sippProcessManager.stopAll(false); // 优雅停止
@@ -370,13 +379,13 @@ class SippWebManagerApp {
       } catch {}
     }
 
-    // 2. 关闭WebSocket服务
+    // 3. 关闭WebSocket服务
     this.wsService.close();
 
-    // 3. 断开SIPp连接
+    // 4. 断开SIPp连接
     sippClient.disconnect();
 
-    // 4. 关闭HTTP服务器
+    // 5. 关闭HTTP服务器
     await new Promise<void>((resolve) => {
       this.server.close(() => {
         logger.info('HTTP server closed');

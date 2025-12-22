@@ -59,6 +59,7 @@ export interface UpdateTaskHistoryInput {
   pid?: number;
   control_port?: number;
   backend_pid?: number;
+  machine_id?: string;
   end_time?: number;
   error?: string;
 }
@@ -182,6 +183,10 @@ export class TaskHistoryRepository {
       if (input.backend_pid !== undefined) {
         updates.push('backend_pid = ?');
         params.push(input.backend_pid);
+      }
+      if (input.machine_id !== undefined) {
+        updates.push('machine_id = ?');
+        params.push(input.machine_id);
       }
       if (input.end_time !== undefined) {
         updates.push('end_time = ?');

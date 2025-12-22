@@ -8,6 +8,7 @@ import {
   DatabaseOutlined,
   HistoryOutlined,
   GlobalOutlined,
+  ClusterOutlined,
 } from '@ant-design/icons';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAppStore } from '@/stores/useAppStore';
@@ -91,6 +92,11 @@ const Layout: React.FC = () => {
       key: '/task-history',
       icon: <HistoryOutlined />,
       label: t('menu.taskHistory'),
+    },
+    {
+      key: '/machines',
+      icon: <ClusterOutlined />,
+      label: '从机管理',
     },
   ];
 

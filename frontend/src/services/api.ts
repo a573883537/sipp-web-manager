@@ -162,6 +162,7 @@ class ApiService {
   async startSippTest(params: {
     taskId?: string; // 任务ID（用于状态跟踪）
     scenarioFile: string;
+    machineId?: string; // 指定执行机器ID（不指定则自动选择）
     rate?: number;
     users?: number;
     limit?: number;
@@ -433,6 +434,31 @@ class ApiService {
   downloadApplicationLogs(type?: string): void {
     const url = `${this.client.defaults.baseURL}/logs/application/download${type ? `?type=${type}` : ''}`;
     window.open(url, '_blank');
+  }
+
+  /**
+   * ==================== 从机管理 API ====================
+   */
+
+  /**
+   * 获取所有从机列表
+   */
+  async getMachines(): Promise<ApiResponse<{ machines: any[] }>> {
+    return this.client.get('/machines');
+  }
+
+  /**
+   * 获取可用从机列表（仅在线）
+   */
+  async getAvailableMachines(): Promise<ApiResponse<{ machines: any[] }>> {
+    return this.client.get('/machines/available');
+  }
+
+  /**
+   * 健康检查指定从机
+   */
+  async checkMachineHealth(machineId: string): Promise<ApiResponse<{ healthy: boolean; machineId: string }>> {
+    return this.client.post(`/machines/${machineId}/health-check`);
   }
 }
 

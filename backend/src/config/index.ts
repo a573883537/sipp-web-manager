@@ -1,5 +1,6 @@
 import dotenv from 'dotenv';
 import path from 'path';
+import os from 'os';
 
 // 加载环境变量
 dotenv.config();
@@ -15,6 +16,16 @@ export const config = {
     env: process.env.NODE_ENV || 'development',
     isDevelopment: process.env.NODE_ENV === 'development',
     isProduction: process.env.NODE_ENV === 'production',
+  },
+
+  // 节点配置（主从架构）
+  node: {
+    role: (process.env.NODE_ROLE || 'slave') as 'master' | 'slave',
+    machineId: process.env.MACHINE_ID || `slave-${os.hostname()}`,
+    machineName: process.env.MACHINE_NAME || os.hostname(),
+    masterHost: process.env.MASTER_HOST || '127.0.0.1',
+    masterPort: parseInt(process.env.MASTER_PORT || '3000', 10),
+    heartbeatInterval: parseInt(process.env.HEARTBEAT_INTERVAL || '10000', 10),
   },
 
   // SIPp配置
