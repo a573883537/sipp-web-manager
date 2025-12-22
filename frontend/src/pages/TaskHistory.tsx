@@ -227,20 +227,6 @@ const TaskHistoryPage: React.FC = () => {
           // 数据库存储大写，前端枚举小写，需要转换
           let status = (task.status?.toLowerCase() || 'failed') as TestTaskStatus;
 
-          // 如果数据库显示运行中，但实际进程管理器中不存在
-          // 注意：服务重启后，进程管理器内存会被清空，但 sipp 进程可能仍在系统中运行
-          // 因此这里不立即标记为 FAILED，而是信任数据库状态
-          // 后端的 recoverRunningTasks 会在启动时检查进程是否真的存活
-          // if (status === TestTaskStatus.RUNNING && !runningTaskIds.has(task.id)) {
-          //   status = TestTaskStatus.FAILED;
-          //   // 异步更新数据库
-          //   apiService.updateTaskHistory(task.id, {
-          //     status: 'FAILED',
-          //     end_time: Date.now(),
-          //     error: 'Process terminated unexpectedly',
-          //   }).catch(console.error);
-          // }
-
           return {
             id: task.id,
             scenarioName: task.scenario_name,

@@ -394,13 +394,21 @@ const Scenarios: React.FC = () => {
       maxRtpPort: 6100,
       enableRtpEcho: false,
       timeout: 120000,
+      traceMsg: false,
+      traceErr: false,
+      traceCalldebug: false,
+      traceShortmsg: false,
+      traceLogs: false,
+      traceRtt: false,
+      bindLocal: false,
     };
 
     // 尝试加载默认模板
     const defaultTemplate = templates.find(t => t.is_default);
     if (defaultTemplate) {
       startTestForm.setFieldsValue({
-        ...defaultTemplate.config,
+        ...defaultConfig,              // 先用默认配置打底（包含所有新字段）
+        ...defaultTemplate.config,     // 再用模板覆盖（保留用户自定义）
         scenarioFile: scenario.filename,
       });
       setCurrentTemplateId(defaultTemplate.id);
@@ -642,6 +650,13 @@ const Scenarios: React.FC = () => {
             maxRtpPort: 6100,
             enableRtpEcho: false,
             timeout: 120000,
+            traceMsg: false,
+            traceErr: false,
+            traceCalldebug: false,
+            traceShortmsg: false,
+            traceLogs: false,
+            traceRtt: false,
+            bindLocal: false,
           }}
         >
           <Form.Item name="scenarioFile" hidden>
@@ -651,10 +666,12 @@ const Scenarios: React.FC = () => {
           <Collapse
             defaultActiveKey={['basic', 'call']}
             style={{ marginBottom: 16 }}
+            destroyInactivePanel={false}
             items={[
               {
                 key: 'basic',
                 label: <><AppstoreOutlined /> {t('startTest.basicConfig')}</>,
+                forceRender: true,
                 children: (
                   <>
                     <Form.Item
@@ -716,6 +733,7 @@ const Scenarios: React.FC = () => {
               {
                 key: 'call',
                 label: <><ClockCircleOutlined /> {t('startTest.rateConfig')}</>,
+                forceRender: true,
                 children: (
                   <>
                     <Space style={{ width: '100%' }} size="large">
@@ -759,6 +777,7 @@ const Scenarios: React.FC = () => {
               {
                 key: 'media',
                 label: <><AudioOutlined /> {t('startTest.rtpConfig')}</>,
+                forceRender: true,
                 children: (
                   <>
                     <Space style={{ width: '100%' }} size="large">
@@ -794,6 +813,7 @@ const Scenarios: React.FC = () => {
               {
                 key: 'scenario',
                 label: <><ToolOutlined /> {t('startTest.advancedConfig')}</>,
+                forceRender: true,
                 children: (
                   <Form.Item
                     name="oocsf"
@@ -812,6 +832,7 @@ const Scenarios: React.FC = () => {
               {
                 key: 'trace',
                 label: <><BugOutlined /> {t('startTest.traceConfig')}</>,
+                forceRender: true,
                 children: (
                   <Space wrap style={{ width: '100%' }}>
                     <Form.Item name="traceMsg" label={t('startTest.traceMsg')} valuePropName="checked" style={{ marginBottom: 8 }}>
@@ -838,6 +859,7 @@ const Scenarios: React.FC = () => {
               {
                 key: 'advanced',
                 label: <><SettingOutlined /> {t('startTest.advancedConfig')}</>,
+                forceRender: true,
                 children: (
                   <Space direction="vertical" style={{ width: '100%' }}>
                     <Form.Item name="localIp" label="Local IP">

@@ -34,6 +34,7 @@ export interface TaskHistoryRecord {
   };
   pid?: number;
   control_port?: number;
+  backend_pid?: number;
   start_time: number;
   end_time?: number;
   error?: string;
@@ -57,6 +58,7 @@ export interface UpdateTaskHistoryInput {
   stats?: Record<string, any>;
   pid?: number;
   control_port?: number;
+  backend_pid?: number;
   end_time?: number;
   error?: string;
 }
@@ -176,6 +178,10 @@ export class TaskHistoryRepository {
       if (input.control_port !== undefined) {
         updates.push('control_port = ?');
         params.push(input.control_port);
+      }
+      if (input.backend_pid !== undefined) {
+        updates.push('backend_pid = ?');
+        params.push(input.backend_pid);
       }
       if (input.end_time !== undefined) {
         updates.push('end_time = ?');

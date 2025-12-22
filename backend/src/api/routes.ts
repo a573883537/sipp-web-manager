@@ -152,6 +152,7 @@ apiRouter.post('/sipp/start', async (req: Request, res: Response): Promise<void>
       await taskHistoryRepository.update(taskId, {
         pid: status.pid || undefined,
         control_port: status.controlPort,
+        backend_pid: process.pid, // 保存当前后端进程 PID 用于孤儿检测
       });
     }
 

@@ -58,15 +58,17 @@ CREATE TABLE IF NOT EXISTS task_history (
     stats JSON DEFAULT NULL COMMENT 'Statistics data (totalCalls, successCalls, failedCalls, successRate)',
     pid INT DEFAULT NULL COMMENT 'Process PID (for recovery after service restart)',
     control_port INT DEFAULT NULL COMMENT 'Control port (for recovery after service restart)',
+    backend_pid INT DEFAULT NULL COMMENT 'Backend process PID (for orphan detection)',
     start_time BIGINT NOT NULL COMMENT 'Start time (milliseconds timestamp)',
     end_time BIGINT DEFAULT NULL COMMENT 'End time (milliseconds timestamp)',
     error TEXT DEFAULT NULL COMMENT 'Error message (failed tasks only)',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT 'Creation time',
-    
+
     INDEX idx_task_status (status),
     INDEX idx_task_scenario (scenario_file),
     INDEX idx_task_start_time (start_time DESC),
-    INDEX idx_task_created (created_at DESC)
+    INDEX idx_task_created (created_at DESC),
+    INDEX idx_task_backend_pid (backend_pid)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='SIPp test task history records';
 
 -- ============================================
@@ -105,7 +107,14 @@ VALUES (
         'minRtpPort', 6000,
         'maxRtpPort', 6100,
         'enableRtpEcho', false,
-        'timeout', 120000
+        'timeout', 120000,
+        'traceMsg', false,
+        'traceErr', false,
+        'traceCalldebug', false,
+        'traceShortmsg', false,
+        'traceLogs', false,
+        'traceRtt', false,
+        'bindLocal', false
     ),
     1
 );
