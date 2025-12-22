@@ -21,6 +21,7 @@ export class HeartbeatService {
   private readonly machineName = config.node.machineName;
   private readonly interval = config.node.heartbeatInterval;
   private readonly masterApiUrl: string;
+  private sippVersionCache: string | null = null; // 缓存SIPp版本
 
   constructor() {
     // 构建主机API地址
@@ -75,7 +76,11 @@ export class HeartbeatService {
   private async register(): Promise<void> {
     try {
       const ip = this.getLocalIP();
-      const sippVersion = this.getSippVersion();
+
+      // 使用缓存的 SIPp 版本（首次获取后缓存）
+      if (this.sippVersionCache === null) {
+        this.sippVersionCache = this.getSippVersion();
+      }
 
       const payload = {
         id: this.machineId,
@@ -83,7 +88,7 @@ export class HeartbeatService {
         ipAddress: ip,
         apiPort: config.server.port,
         role: 'slave' as const,
-        sippVersion,
+        sippVersion: this.sippVersionCache,
         status: 'online' as const,
         lastHeartbeat: Date.now(),
       };
@@ -107,7 +112,11 @@ export class HeartbeatService {
   private async sendHeartbeat(): Promise<void> {
     try {
       const stats = this.getSystemStats();
-      const sippVersion = this.getSippVersion();
+
+      // 使用缓存的 SIPp 版本（首次获取后缓存）
+      if (this.sippVersionCache === null) {
+        this.sippVersionCache = this.getSippVersion();
+      }
 
       // 从本地 sippProcessManager 获取运行任务数
       const runningTasks = sippProcessManager.getRunningCount();
@@ -115,7 +124,7 @@ export class HeartbeatService {
       const payload = {
         id: this.machineId,
         status: 'online' as const,
-        sippVersion,
+        sippVersion: this.sippVersionCache,
         cpuUsage: stats.cpu,
         memoryUsage: stats.memory,
         runningTasks,
@@ -127,7 +136,7 @@ export class HeartbeatService {
         headers: { 'Content-Type': 'application/json' },
       });
 
-      logger.debug(`Heartbeat sent: ${this.machineId} (CPU: ${stats.cpu}%, MEM: ${stats.memory}%, Tasks: ${runningTasks}, SIPp: ${sippVersion})`);
+      logger.debug(`Heartbeat sent: ${this.machineId} (CPU: ${stats.cpu}%, MEM: ${stats.memory}%, Tasks: ${runningTasks}, SIPp: ${this.sippVersionCache})`);
     } catch (error: any) {
       const errorMsg = error.response?.data?.error || error.message || String(error);
       logger.error('Failed to send heartbeat:', { error: errorMsg, machineId: this.machineId, url: this.masterApiUrl });
@@ -209,9 +218,13 @@ export class HeartbeatService {
         encoding: 'utf-8',
         timeout: 3000,
       });
-      // 匹配格式: "SIPp v3.6.1" 或 "SIPp version 3.6.1"
-      const match = output.match(/SIPp\s+(?:v|version)?\s*(\d+\.\d+(?:\.\d+)?)/i);
-      return match ? match[1] : 'unknown';
+      // 匹配格式: "SIPp v3.7.5-20-g66074c1-TLS-PCAP-SHA256"
+      const match = output.match(/SIPp\s+v(\S+)/i);
+      if (match) {
+        // 移除末尾的点号（如果有）
+        return match[1].replace(/\.$/, '');
+      }
+      return 'unknown';
     } catch {
       return 'unknown';
     }

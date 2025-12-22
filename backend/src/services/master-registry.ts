@@ -18,6 +18,7 @@ export class MasterRegistryService {
   private timer: NodeJS.Timeout | null = null;
   private readonly machineId = config.node.machineId;
   private readonly interval = 10000; // 10秒更新一次
+  private sippVersionCache: string | null = null; // 缓存SIPp版本
 
   /**
    * 启动主机注册服务
@@ -66,7 +67,12 @@ export class MasterRegistryService {
   private async register(): Promise<void> {
     try {
       const ip = this.getLocalIP();
-      const sippVersion = this.getSippVersion();
+
+      // 使用缓存的 SIPp 版本（首次获取后缓存）
+      if (this.sippVersionCache === null) {
+        this.sippVersionCache = this.getSippVersion();
+      }
+
       const stats = this.getSystemStats();
       const runningTasks = sippProcessManager.getRunningCount();
 
@@ -91,7 +97,7 @@ export class MasterRegistryService {
         ip,
         config.server.port,
         'master',
-        sippVersion,
+        this.sippVersionCache,
         'online',
         stats.cpu,
         stats.memory,
@@ -227,9 +233,13 @@ export class MasterRegistryService {
         encoding: 'utf-8',
         timeout: 3000,
       });
-      // 匹配格式: "SIPp v3.6.1" 或 "SIPp version 3.6.1"
-      const match = output.match(/SIPp\s+(?:v|version)?\s*(\d+\.\d+(?:\.\d+)?)/i);
-      return match ? match[1] : 'unknown';
+      // 匹配格式: "SIPp v3.7.5-20-g66074c1-TLS-PCAP-SHA256"
+      const match = output.match(/SIPp\s+v(\S+)/i);
+      if (match) {
+        // 移除末尾的点号（如果有）
+        return match[1].replace(/\.$/, '');
+      }
+      return 'unknown';
     } catch {
       return 'unknown';
     }
