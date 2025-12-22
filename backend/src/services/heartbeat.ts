@@ -95,7 +95,8 @@ export class HeartbeatService {
 
       logger.info(`Machine registered: ${this.machineId} (${ip}:${config.server.port})`);
     } catch (error: any) {
-      logger.error('Failed to register machine:', error.message || error);
+      const errorMsg = error.response?.data?.error || error.message || String(error);
+      logger.error('Failed to register machine:', { error: errorMsg, machineId: this.machineId });
       throw error;
     }
   }
@@ -126,7 +127,8 @@ export class HeartbeatService {
 
       logger.debug(`Heartbeat sent: ${this.machineId} (CPU: ${stats.cpu}%, MEM: ${stats.memory}%, Tasks: ${runningTasks})`);
     } catch (error: any) {
-      logger.error('Failed to send heartbeat:', error.message || error);
+      const errorMsg = error.response?.data?.error || error.message || String(error);
+      logger.error('Failed to send heartbeat:', { error: errorMsg, machineId: this.machineId, url: this.masterApiUrl });
       // 不抛出异常，允许下次重试
     }
   }
@@ -149,7 +151,8 @@ export class HeartbeatService {
 
       logger.info(`Machine marked as offline: ${this.machineId}`);
     } catch (error: any) {
-      logger.error('Failed to set offline:', error.message || error);
+      const errorMsg = error.response?.data?.error || error.message || String(error);
+      logger.error('Failed to set offline:', { error: errorMsg, machineId: this.machineId });
     }
   }
 
@@ -200,11 +203,12 @@ export class HeartbeatService {
    */
   private getSippVersion(): string {
     try {
-      const output = execSync(`${config.sipp.host === 'localhost' ? 'sipp' : config.sipp.host} -v 2>&1`, {
+      const output = execSync('sipp -v 2>&1', {
         encoding: 'utf-8',
         timeout: 3000,
       });
-      const match = output.match(/SIPp\s+v(\S+)/i);
+      // 匹配格式: "SIPp v3.6.1" 或 "SIPp version 3.6.1"
+      const match = output.match(/SIPp\s+(?:v|version)?\s*(\d+\.\d+(?:\.\d+)?)/i);
       return match ? match[1] : 'unknown';
     } catch {
       return 'unknown';

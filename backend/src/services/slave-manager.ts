@@ -2,6 +2,8 @@ import axios, { AxiosError } from 'axios';
 import { config } from '../config';
 import { query } from '../database';
 import { logger } from '../utils/logger';
+import * as fs from 'fs';
+import * as path from 'path';
 
 /**
  * 从机信息
@@ -88,6 +90,7 @@ export class SlaveManager {
 
   /**
    * 在指定从机上启动测试
+   * 主动推送场景文件和注入文件内容到从机
    */
   async startTestOnSlave(
     machineId: string,
@@ -105,11 +108,24 @@ export class SlaveManager {
     try {
       logger.info(`Starting test on slave ${machineId}: ${taskId}`);
 
+      // 读取场景文件内容
+      const scenarioPath = path.join(config.sipp.scenarioDir, scenarioFile);
+      const scenarioContent = await this.readFileIfExists(scenarioPath);
+
+      // 读取注入文件内容（如果有）
+      let injectionContent: string | undefined;
+      if (options.injectionFile) {
+        const injectionPath = path.join(config.sipp.injectionDir, options.injectionFile);
+        injectionContent = await this.readFileIfExists(injectionPath);
+      }
+
       const response = await axios.post(
         url,
         {
           taskId,
           scenarioFile,
+          scenarioContent, // 传递场景文件内容
+          injectionContent, // 传递注入文件内容
           ...options,
         },
         {
@@ -126,6 +142,23 @@ export class SlaveManager {
     } catch (error: any) {
       this.handleSlaveError(machineId, error);
       throw new Error(`Failed to start test on slave ${machineId}: ${error.message}`);
+    }
+  }
+
+  /**
+   * 读取文件内容（如果存在）
+   */
+  private async readFileIfExists(filePath: string): Promise<string | undefined> {
+    try {
+      if (fs.existsSync(filePath)) {
+        return fs.readFileSync(filePath, 'utf-8');
+      } else {
+        logger.warn(`File not found: ${filePath}`);
+        return undefined;
+      }
+    } catch (error: any) {
+      logger.error(`Failed to read file ${filePath}:`, error.message);
+      return undefined;
     }
   }
 

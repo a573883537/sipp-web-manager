@@ -26,6 +26,7 @@ export const apiRouter = Router();
  */
 apiRouter.get('/health', (_req: Request, res: Response) => {
   res.json({
+    success: true,
     status: 'ok',
     timestamp: Date.now(),
     sippConnected: sippClient.isActive(),
@@ -77,6 +78,8 @@ apiRouter.post('/sipp/start', async (req: Request, res: Response): Promise<void>
     const {
       taskId,
       scenarioFile,
+      scenarioContent, // 新增：场景文件内容（从主机推送）
+      injectionContent, // 新增：注入文件内容（从主机推送）
       machineId, // 新增：指定从机ID，不指定则自动选择
       rate = 10,
       users = 100,
@@ -121,6 +124,23 @@ apiRouter.post('/sipp/start', async (req: Request, res: Response): Promise<void>
         error: 'Missing required field: taskId',
       });
       return;
+    }
+
+    // 从机模式：保存主机推送的文件内容到本地
+    if (config.node.role === 'slave') {
+      if (scenarioContent) {
+        const scenarioPath = path.join(config.sipp.scenarioDir, scenarioFile);
+        await fs.mkdir(path.dirname(scenarioPath), { recursive: true });
+        await fs.writeFile(scenarioPath, scenarioContent, 'utf-8');
+        logger.info(`Scenario file saved from master: ${scenarioPath}`);
+      }
+
+      if (injectionContent && injectionFile) {
+        const injectionPath = path.join(config.sipp.injectionDir, injectionFile);
+        await fs.mkdir(path.dirname(injectionPath), { recursive: true });
+        await fs.writeFile(injectionPath, injectionContent, 'utf-8');
+        logger.info(`Injection file saved from master: ${injectionPath}`);
+      }
     }
 
     const options = {
