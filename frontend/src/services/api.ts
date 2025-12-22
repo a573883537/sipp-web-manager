@@ -299,6 +299,20 @@ class ApiService {
   }
 
   /**
+   * 远程控制SIPp任务（主机统一控制接口）
+   */
+  async remoteControlTask(taskId: string, command: string, args?: any): Promise<ApiResponse> {
+    return this.client.post('/machines/sipp/control', { taskId, command, args });
+  }
+
+  /**
+   * 远程停止SIPp任务（主机统一停止接口）
+   */
+  async remoteStopTask(taskId: string, force = false): Promise<ApiResponse> {
+    return this.client.post('/machines/sipp/stop', { taskId, force });
+  }
+
+  /**
    * 根据状态获取任务历史
    */
   async getTaskHistoryByStatus(status: string): Promise<ApiResponse<{ tasks: any[] }>> {

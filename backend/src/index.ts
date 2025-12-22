@@ -6,6 +6,7 @@ import { logger } from './utils/logger';
 import { sippClient } from './services/sipp-client';
 import { sippProcessManager } from './services/sipp-process';
 import { heartbeatService } from './services/heartbeat';
+import { masterRegistryService } from './services/master-registry';
 import { WebSocketService } from './websocket';
 import { testConnection, initializeDatabase } from './database';
 import { taskHistoryRepository } from './database/task-history-repository';
@@ -330,6 +331,9 @@ class SippWebManagerApp {
         // 启动心跳服务（仅从机模式）
         heartbeatService.start();
 
+        // 启动主机注册服务（仅主机模式）
+        masterRegistryService.start();
+
         resolve();
       });
     });
@@ -342,10 +346,13 @@ class SippWebManagerApp {
   async shutdown(): Promise<void> {
     logger.info('Shutting down gracefully...');
 
-    // 1. 停止心跳服务
+    // 1. 停止心跳服务（从机）
     heartbeatService.stop();
 
-    // 2. 停止所有运行中的 SIPp 进程
+    // 2. 停止主机注册服务（主机）
+    masterRegistryService.stop();
+
+    // 3. 停止所有运行中的 SIPp 进程
     try {
       logger.info('Stopping all SIPp processes...');
       await sippProcessManager.stopAll(false); // 优雅停止

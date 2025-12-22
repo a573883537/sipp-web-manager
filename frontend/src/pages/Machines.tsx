@@ -20,6 +20,9 @@ import {
   ClockCircleOutlined,
   ApiOutlined,
   PlayCircleOutlined,
+  PauseCircleOutlined,
+  StopOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { apiService } from '@/services/api';
@@ -87,6 +90,42 @@ const Machines: React.FC = () => {
       message.error(`健康检查失败: ${error.message}`);
     } finally {
       setHealthChecking((prev) => ({ ...prev, [machineId]: false }));
+    }
+  };
+
+  /**
+   * 控制任务（远程转发）
+   */
+  const handleTaskControl = async (taskId: string, command: string) => {
+    try {
+      const response = await apiService.remoteControlTask(taskId, command);
+      if (response.success) {
+        message.success(`命令已发送: ${command}`);
+      } else {
+        message.error(`命令发送失败: ${response.error || '未知错误'}`);
+      }
+    } catch (error: any) {
+      message.error(`控制失败: ${error.message}`);
+    }
+  };
+
+  /**
+   * 停止任务（远程转发）
+   */
+  const handleStopTask = async (taskId: string) => {
+    try {
+      const response = await apiService.remoteStopTask(taskId, false);
+      if (response.success) {
+        message.success('任务停止命令已发送');
+        // 延迟刷新以便任务状态更新
+        setTimeout(() => {
+          loadMachines();
+        }, 1000);
+      } else {
+        message.error(`停止失败: ${response.error || '未知错误'}`);
+      }
+    } catch (error: any) {
+      message.error(`停止失败: ${error.message}`);
     }
   };
 
@@ -217,6 +256,38 @@ const Machines: React.FC = () => {
           <Text type="secondary" style={{ fontSize: '12px' }}>
             已运行: {formatDuration(timestamp)}
           </Text>
+        </Space>
+      ),
+    },
+    {
+      title: '操作',
+      key: 'actions',
+      width: 180,
+      fixed: 'right',
+      render: (_: any, record: any) => (
+        <Space size="small">
+          <Tooltip title="暂停/恢复">
+            <Button
+              size="small"
+              icon={<PauseCircleOutlined />}
+              onClick={() => handleTaskControl(record.id, 'p')}
+            />
+          </Tooltip>
+          <Tooltip title="调整速率">
+            <Button
+              size="small"
+              icon={<ThunderboltOutlined />}
+              onClick={() => handleTaskControl(record.id, 'a')}
+            />
+          </Tooltip>
+          <Tooltip title="停止任务">
+            <Button
+              danger
+              size="small"
+              icon={<StopOutlined />}
+              onClick={() => handleStopTask(record.id)}
+            />
+          </Tooltip>
         </Space>
       ),
     },

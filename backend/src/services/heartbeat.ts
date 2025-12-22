@@ -107,6 +107,7 @@ export class HeartbeatService {
   private async sendHeartbeat(): Promise<void> {
     try {
       const stats = this.getSystemStats();
+      const sippVersion = this.getSippVersion();
 
       // 从本地 sippProcessManager 获取运行任务数
       const runningTasks = sippProcessManager.getRunningCount();
@@ -114,6 +115,7 @@ export class HeartbeatService {
       const payload = {
         id: this.machineId,
         status: 'online' as const,
+        sippVersion,
         cpuUsage: stats.cpu,
         memoryUsage: stats.memory,
         runningTasks,
@@ -125,7 +127,7 @@ export class HeartbeatService {
         headers: { 'Content-Type': 'application/json' },
       });
 
-      logger.debug(`Heartbeat sent: ${this.machineId} (CPU: ${stats.cpu}%, MEM: ${stats.memory}%, Tasks: ${runningTasks})`);
+      logger.debug(`Heartbeat sent: ${this.machineId} (CPU: ${stats.cpu}%, MEM: ${stats.memory}%, Tasks: ${runningTasks}, SIPp: ${sippVersion})`);
     } catch (error: any) {
       const errorMsg = error.response?.data?.error || error.message || String(error);
       logger.error('Failed to send heartbeat:', { error: errorMsg, machineId: this.machineId, url: this.masterApiUrl });

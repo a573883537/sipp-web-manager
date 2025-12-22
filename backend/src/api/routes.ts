@@ -13,6 +13,7 @@ import { slaveManager } from '../services/slave-manager';
 import fs from 'fs/promises';
 import * as fsSync from 'fs';
 import path from 'path';
+import axios from 'axios';
 
 /**
  * REST API路由
@@ -1360,24 +1361,37 @@ apiRouter.post('/machines/heartbeat', async (req: Request, res: Response): Promi
         lastHeartbeat || Date.now(),
       ]);
     } else {
-      // 心跳更新（仅更新状态）
+      // 心跳更新（仅更新状态，如果带了 sippVersion 也更新）
+      const updateFields: string[] = [];
+      const updateValues: any[] = [];
+
+      updateFields.push('status = ?');
+      updateValues.push(status);
+
+      updateFields.push('cpu_usage = ?');
+      updateValues.push(cpuUsage || null);
+
+      updateFields.push('memory_usage = ?');
+      updateValues.push(memoryUsage || null);
+
+      updateFields.push('running_tasks = ?');
+      updateValues.push(runningTasks || 0);
+
+      if (sippVersion) {
+        updateFields.push('sipp_version = ?');
+        updateValues.push(sippVersion);
+      }
+
+      updateFields.push('last_heartbeat = ?');
+      updateValues.push(lastHeartbeat || Date.now());
+
+      updateValues.push(id);
+
       await query(`
         UPDATE machines
-        SET
-          status = ?,
-          cpu_usage = ?,
-          memory_usage = ?,
-          running_tasks = ?,
-          last_heartbeat = ?
+        SET ${updateFields.join(', ')}
         WHERE id = ?
-      `, [
-        status,
-        cpuUsage || null,
-        memoryUsage || null,
-        runningTasks || 0,
-        lastHeartbeat || Date.now(),
-        id,
-      ]);
+      `, updateValues);
     }
 
     // 同步更新 machines 表的 total_tasks（从 task_history 统计）
@@ -1476,6 +1490,180 @@ apiRouter.post('/machines/:id/health-check', async (req: Request, res: Response)
   } catch (error: any) {
     logger.error('Failed to check slave health:', error);
     res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * 远程控制SIPp任务（主机统一控制接口）
+ * 职责：根据任务所在机器转发控制命令
+ */
+apiRouter.post('/machines/sipp/control', async (req: Request, res: Response): Promise<void> => {
+  try {
+    if (config.node.role !== 'master') {
+      res.status(403).json({
+        success: false,
+        error: 'This API is only available on master node',
+      });
+      return;
+    }
+
+    const { taskId, command, args } = req.body;
+
+    if (!taskId || !command) {
+      res.status(400).json({
+        success: false,
+        error: 'Missing required fields: taskId, command',
+      });
+      return;
+    }
+
+    // 从数据库查找任务所属的机器
+    const task = await taskHistoryRepository.findById(taskId);
+    if (!task) {
+      res.status(404).json({
+        success: false,
+        error: `Task not found: ${taskId}`,
+      });
+      return;
+    }
+
+    const machineId = task.machine_id;
+    logger.info(`Forwarding control command to ${machineId}: ${command} for task ${taskId}`);
+
+    // 如果是主机任务，直接本地执行
+    if (machineId === 'master' || machineId === config.node.machineId) {
+      await sippProcessManager.sendCommand(taskId, command, args);
+      res.json({
+        success: true,
+        message: `Command ${command} executed on master`,
+        machineId,
+      });
+      return;
+    }
+
+    // 如果是从机任务，转发到从机
+    const machines = await query('SELECT * FROM machines WHERE id = ?', [machineId]);
+    if (machines.length === 0) {
+      res.status(404).json({
+        success: false,
+        error: `Machine not found: ${machineId}`,
+      });
+      return;
+    }
+
+    const machine = machines[0] as any;
+    const slaveUrl = `http://${machine.ip_address}:${machine.api_port}/api/sipp/command`;
+
+    logger.info(`Forwarding to slave ${machineId} at ${slaveUrl}`);
+
+    const response = await axios.post(slaveUrl, {
+      taskId,
+      command,
+      args,
+    }, {
+      timeout: 10000,
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    res.json({
+      success: true,
+      message: `Command ${command} forwarded to ${machineId}`,
+      machineId,
+      slaveResponse: response.data,
+    });
+  } catch (error: any) {
+    logger.error('Failed to control SIPp task:', error);
+    const errorMsg = error.response?.data?.error || error.message;
+    res.status(error.response?.status || 500).json({
+      success: false,
+      error: errorMsg,
+    });
+  }
+});
+
+/**
+ * 远程停止SIPp任务（主机统一停止接口）
+ */
+apiRouter.post('/machines/sipp/stop', async (req: Request, res: Response): Promise<void> => {
+  try {
+    if (config.node.role !== 'master') {
+      res.status(403).json({
+        success: false,
+        error: 'This API is only available on master node',
+      });
+      return;
+    }
+
+    const { taskId, force = false } = req.body;
+
+    if (!taskId) {
+      res.status(400).json({
+        success: false,
+        error: 'Missing required field: taskId',
+      });
+      return;
+    }
+
+    // 从数据库查找任务所属的机器
+    const task = await taskHistoryRepository.findById(taskId);
+    if (!task) {
+      res.status(404).json({
+        success: false,
+        error: `Task not found: ${taskId}`,
+      });
+      return;
+    }
+
+    const machineId = task.machine_id;
+    logger.info(`Stopping task ${taskId} on ${machineId}`);
+
+    // 如果是主机任务，直接本地停止
+    if (machineId === 'master' || machineId === config.node.machineId) {
+      await sippProcessManager.stop(taskId, force);
+      res.json({
+        success: true,
+        message: 'Task stopped on master',
+        machineId,
+      });
+      return;
+    }
+
+    // 如果是从机任务，转发到从机
+    const machines = await query('SELECT * FROM machines WHERE id = ?', [machineId]);
+    if (machines.length === 0) {
+      res.status(404).json({
+        success: false,
+        error: `Machine not found: ${machineId}`,
+      });
+      return;
+    }
+
+    const machine = machines[0] as any;
+    const slaveUrl = `http://${machine.ip_address}:${machine.api_port}/api/sipp/stop`;
+
+    logger.info(`Forwarding stop to slave ${machineId} at ${slaveUrl}`);
+
+    const response = await axios.post(slaveUrl, {
+      taskId,
+      force,
+    }, {
+      timeout: 10000,
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    res.json({
+      success: true,
+      message: `Task stop forwarded to ${machineId}`,
+      machineId,
+      slaveResponse: response.data,
+    });
+  } catch (error: any) {
+    logger.error('Failed to stop SIPp task:', error);
+    const errorMsg = error.response?.data?.error || error.message;
+    res.status(error.response?.status || 500).json({
+      success: false,
+      error: errorMsg,
+    });
   }
 });
 
