@@ -29,7 +29,7 @@ export const apiRouter = Router();
  */
 const upload = multer({
   storage: multer.diskStorage({
-    destination: async (req, file, cb) => {
+    destination: async (req, _file, cb) => {
       try {
         const { machineId, taskId } = req.body;
         if (!machineId || !taskId) {
@@ -45,7 +45,7 @@ const upload = multer({
         cb(error, '');
       }
     },
-    filename: (req, file, cb) => {
+    filename: (_req, file, cb) => {
       // 保持原始文件名
       cb(null, file.originalname);
     },
