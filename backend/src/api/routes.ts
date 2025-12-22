@@ -857,7 +857,12 @@ apiRouter.delete('/task-history/:id', async (req: Request, res: Response): Promi
 apiRouter.get('/config-templates', async (_req: Request, res: Response): Promise<void> => {
   try {
     const templates = await configTemplateRepository.findAll();
-    res.json({ success: true, templates });
+    // 确保 config 字段被解析为对象
+	const parsedTemplates = templates.map(t => ({
+		...t,
+		config: typeof t.config === 'string' ? JSON.parse(t.config) : t.config
+	}));
+	res.json({ success: true, templates: parsedTemplates });
   } catch (error: any) {
     logger.error('Failed to get config templates:', error);
     res.status(500).json({ success: false, error: error.message });
@@ -870,6 +875,10 @@ apiRouter.get('/config-templates', async (_req: Request, res: Response): Promise
 apiRouter.get('/config-templates/default', async (_req: Request, res: Response): Promise<void> => {
   try {
     const template = await configTemplateRepository.findDefault();
+	if (template) {
+		// 确保 config 字段被解析为对象
+		template.config = typeof template.config === 'string' ? JSON.parse(template.config) : template.config;
+	}
     res.json({ success: true, template });
   } catch (error: any) {
     logger.error('Failed to get default config template:', error);
@@ -888,6 +897,8 @@ apiRouter.get('/config-templates/:id', async (req: Request, res: Response): Prom
       res.status(404).json({ success: false, error: 'Template not found' });
       return;
     }
+	// 确保 config 字段被解析为对象
+	template.config = typeof template.config === 'string' ? JSON.parse(template.config) : template.config;
     res.json({ success: true, template });
   } catch (error: any) {
     logger.error('Failed to get config template:', error);
