@@ -9,6 +9,8 @@ import { taskHistoryRepository } from '../database/task-history-repository';
 import { query } from '../database';
 import path from 'path';
 import axios from 'axios';
+import * as fs from 'fs';
+import FormData from 'form-data';
 
 /**
  * WebSocket服务
@@ -159,6 +161,15 @@ export class WebSocketService {
           }
         } catch (err: any) {
           logger.error('Failed to update task stats:', err);
+        }
+
+        // 从机模式：上传日志到主机并删除本地日志
+        if (config.node.role === 'slave') {
+          try {
+            await this.uploadLogsToMaster(taskId);
+          } catch (err: any) {
+            logger.error(`Failed to upload logs for task ${taskId}:`, err);
+          }
         }
 
         this.broadcast('task:completed', {
@@ -461,6 +472,83 @@ export class WebSocketService {
       clearInterval(this.taskStatsInterval);
       this.taskStatsInterval = null;
       logger.info('Stopped task stats polling');
+    }
+  }
+
+  /**
+   * 上传日志到主机（从机调用）
+   * 任务结束后自动上传所有日志文件，上传成功后删除本地日志
+   */
+  private async uploadLogsToMaster(taskId: string): Promise<void> {
+    if (config.node.role !== 'slave') {
+      throw new Error('uploadLogsToMaster can only be called on slave node');
+    }
+
+    const logDir = config.sipp.logDir;
+    const machineId = config.node.machineId;
+
+    // 查找所有与该任务相关的日志文件
+    const files = fs.readdirSync(logDir);
+    const taskLogFiles = files.filter(f => f.includes(taskId));
+
+    if (taskLogFiles.length === 0) {
+      logger.warn(`No log files found for task ${taskId}, skipping upload`);
+      return;
+    }
+
+    logger.info(`Uploading ${taskLogFiles.length} log files for task ${taskId} to master`);
+
+    try {
+      // 获取主机信息
+      const masters = await query('SELECT * FROM machines WHERE role = ?', ['master']);
+      if (masters.length === 0) {
+        throw new Error('Master node not found in database');
+      }
+
+      const master = masters[0] as any;
+      const masterUrl = `http://${master.ip_address}:${master.api_port}/api/logs/upload`;
+
+      // 构建 form-data
+      const formData = new FormData();
+      formData.append('machineId', machineId);
+      formData.append('taskId', taskId);
+
+      // 添加所有日志文件
+      for (const file of taskLogFiles) {
+        const filePath = path.join(logDir, file);
+        formData.append('files', fs.createReadStream(filePath), file);
+      }
+
+      // 上传到主机
+      const response = await axios.post(masterUrl, formData, {
+        headers: formData.getHeaders(),
+        timeout: 60000, // 60秒超时
+        maxBodyLength: Infinity,
+        maxContentLength: Infinity,
+      });
+
+      if (!response.data?.success) {
+        throw new Error(response.data?.error || 'Upload failed');
+      }
+
+      logger.info(`Successfully uploaded ${taskLogFiles.length} log files for task ${taskId}`);
+
+      // 上传成功后删除本地日志文件
+      for (const file of taskLogFiles) {
+        try {
+          const filePath = path.join(logDir, file);
+          fs.unlinkSync(filePath);
+          logger.debug(`Deleted local log file: ${file}`);
+        } catch (err: any) {
+          logger.warn(`Failed to delete local log file ${file}:`, err.message);
+        }
+      }
+
+      logger.info(`Cleaned up ${taskLogFiles.length} local log files for task ${taskId}`);
+
+    } catch (error: any) {
+      logger.error(`Failed to upload logs for task ${taskId}:`, error.message);
+      throw error;
     }
   }
 

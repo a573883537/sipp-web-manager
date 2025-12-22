@@ -482,6 +482,13 @@ class ApiService {
   async checkMachineHealth(machineId: string): Promise<ApiResponse<{ healthy: boolean; machineId: string }>> {
     return this.client.post(`/machines/${machineId}/health-check`);
   }
+
+  /**
+   * 删除从机记录（仅允许删除离线从机）
+   */
+  async deleteMachine(machineId: string): Promise<ApiResponse> {
+    return this.client.delete(`/machines/${machineId}`);
+  }
 }
 
 // 单例导出

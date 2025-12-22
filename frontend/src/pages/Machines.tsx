@@ -12,6 +12,7 @@ import {
   Statistic,
   Row,
   Col,
+  Modal,
 } from 'antd';
 import {
   ReloadOutlined,
@@ -23,6 +24,8 @@ import {
   PauseCircleOutlined,
   StopOutlined,
   ThunderboltOutlined,
+  DeleteOutlined,
+  ExclamationCircleOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { apiService } from '@/services/api';
@@ -113,6 +116,38 @@ const Machines: React.FC = () => {
     } finally {
       setHealthChecking((prev) => ({ ...prev, [machineId]: false }));
     }
+  };
+
+  /**
+   * 删除离线从机
+   */
+  const handleDeleteMachine = (machineId: string, machineName: string, status: string) => {
+    if (status !== 'offline') {
+      message.warning('只能删除离线状态的从机');
+      return;
+    }
+
+    Modal.confirm({
+      title: '确认删除',
+      icon: <ExclamationCircleOutlined />,
+      content: `确定要删除从机 "${machineName}" (${machineId}) 吗？删除后从机重启会自动重新注册。`,
+      okText: '确认删除',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          const response = await apiService.deleteMachine(machineId);
+          if (response.success) {
+            message.success(`从机 ${machineId} 已删除`);
+            await loadMachines();
+          } else {
+            message.error(`删除失败: ${response.error || '未知错误'}`);
+          }
+        } catch (error: any) {
+          message.error(`删除失败: ${error.message}`);
+        }
+      },
+    });
   };
 
   /**
@@ -465,7 +500,7 @@ const Machines: React.FC = () => {
     {
       title: '操作',
       key: 'actions',
-      width: 120,
+      width: 180,
       fixed: 'right',
       render: (_: any, record) => (
         <Space>
@@ -480,6 +515,19 @@ const Machines: React.FC = () => {
               检查
             </Button>
           </Tooltip>
+          {record.status === 'offline' && record.role !== 'master' && (
+            <Tooltip title="删除离线从机">
+              <Button
+                type="link"
+                danger
+                icon={<DeleteOutlined />}
+                size="small"
+                onClick={() => handleDeleteMachine(record.id, record.name, record.status)}
+              >
+                删除
+              </Button>
+            </Tooltip>
+          )}
         </Space>
       ),
     },
@@ -601,6 +649,14 @@ const Machines: React.FC = () => {
 
   return (
     <div style={{ padding: '24px' }}>
+      <style>{`
+        .master-row {
+          background-color: #e6f7ff !important;
+        }
+        .master-row:hover {
+          background-color: #bae7ff !important;
+        }
+      `}</style>
       {/* 统计卡片 */}
       <Row gutter={16} style={{ marginBottom: '16px' }}>
         <Col span={6}>
@@ -659,6 +715,7 @@ const Machines: React.FC = () => {
           rowKey="id"
           loading={loading}
           scroll={{ x: 1400 }}
+          rowClassName={(record) => record.role === 'master' ? 'master-row' : ''}
           expandable={{
             expandedRowRender,
             rowExpandable: (record) => (runningTasksByMachine[record.id] || []).length > 0,

@@ -250,16 +250,13 @@ const TaskHistoryPage: React.FC = () => {
 
   /**
    * 下载任务日志
+   * 直接触发下载，由后端 download-remote 接口自动路由到正确节点
    */
   const handleDownloadTaskLogs = async (taskId: string) => {
     try {
-      const response = await apiService.getTaskLogFiles(taskId);
-      if (response.success && response.files && response.files.length > 0) {
-        apiService.downloadTaskLogs(taskId);
-        message.success(t('taskHistory.downloadStarted'));
-      } else {
-        message.warning(t('taskHistory.noLogsAvailable'));
-      }
+      // 直接触发下载，不再预先检查文件（download-remote 会自动处理）
+      apiService.downloadTaskLogs(taskId);
+      message.success(t('taskHistory.downloadStarted'));
     } catch (error: any) {
       message.error(`${t('common.failed')}: ${error.message}`);
     }

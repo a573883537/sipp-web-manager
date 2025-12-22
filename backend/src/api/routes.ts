@@ -14,6 +14,7 @@ import fs from 'fs/promises';
 import * as fsSync from 'fs';
 import path from 'path';
 import axios from 'axios';
+import multer from 'multer';
 
 /**
  * REST API路由
@@ -21,6 +22,38 @@ import axios from 'axios';
  * 遵循单一职责原则和RESTful设计规范
  */
 export const apiRouter = Router();
+
+/**
+ * 配置 multer 用于日志文件上传
+ * 存储策略：按 {machineId}/{taskId}/ 目录结构组织
+ */
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: async (req, file, cb) => {
+      try {
+        const { machineId, taskId } = req.body;
+        if (!machineId || !taskId) {
+          return cb(new Error('Missing machineId or taskId'), '');
+        }
+
+        // 创建目标目录：logs/{machineId}/{taskId}/
+        const uploadDir = path.join(config.sipp.logDir, machineId, taskId);
+        await fs.mkdir(uploadDir, { recursive: true });
+
+        cb(null, uploadDir);
+      } catch (error: any) {
+        cb(error, '');
+      }
+    },
+    filename: (req, file, cb) => {
+      // 保持原始文件名
+      cb(null, file.originalname);
+    },
+  }),
+  limits: {
+    fileSize: 100 * 1024 * 1024, // 100MB 单文件限制
+  },
+});
 
 /**
  * 健康检查
@@ -1229,6 +1262,7 @@ apiRouter.get('/logs/task/:taskId/download', async (req: Request, res: Response)
 /**
  * 远程下载任务日志（主机转发到从机）
  * 用于从主机下载从机上的任务日志
+ * 新逻辑：优先从本地 {machineId}/{taskId}/ 目录读取（从机已上传）
  */
 apiRouter.get('/logs/task/:taskId/download-remote', async (req: Request, res: Response): Promise<void> => {
   try {
@@ -1254,9 +1288,44 @@ apiRouter.get('/logs/task/:taskId/download-remote', async (req: Request, res: Re
 
     const machineId = task.machine_id;
 
+    // 检查本地是否存在日志（从机已上传的情况）
+    const localLogDir = path.join(config.sipp.logDir, machineId, taskId);
+    const localLogExists = fsSync.existsSync(localLogDir);
+
+    if (localLogExists) {
+      // 本地存在日志，直接打包返回
+      logger.info(`Serving logs from local storage for task ${taskId} (machine: ${machineId})`);
+
+      const files = fsSync.readdirSync(localLogDir);
+      if (files.length === 0) {
+        res.status(404).json({ success: false, error: 'No log files found' });
+        return;
+      }
+
+      const archiver = require('archiver');
+      const archive = archiver('zip', { zlib: { level: 9 } });
+
+      res.attachment(`task_${taskId}_logs.zip`);
+      archive.pipe(res);
+
+      // 添加所有日志文件
+      for (const file of files) {
+        const filePath = path.join(localLogDir, file);
+        if (fsSync.statSync(filePath).isFile()) {
+          archive.file(filePath, { name: file });
+        }
+      }
+
+      archive.finalize();
+      logger.info(`Local logs downloaded for task ${taskId}`, { files: files.length });
+      return;
+    }
+
+    // 本地不存在，尝试从从机下载（兼容旧逻辑）
+    logger.info(`Local logs not found, attempting to fetch from slave ${machineId} for task ${taskId}`);
+
     // 如果是主机任务，直接本地下载
     if (machineId === 'master' || machineId === config.node.machineId) {
-      // 重定向到本地下载接口
       res.redirect(`/api/logs/task/${taskId}/download`);
       return;
     }
@@ -1282,7 +1351,6 @@ apiRouter.get('/logs/task/:taskId/download-remote', async (req: Request, res: Re
       timeout: 30000,
     });
 
-    // 设置响应头
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', `attachment; filename="task_${taskId}_logs.zip"`);
 
@@ -1394,9 +1462,9 @@ apiRouter.get('/logs/application/info', async (_req: Request, res: Response): Pr
     const logDir = path.dirname(config.logging.file);
     const appLogPath = config.logging.file;
     const errorLogPath = path.join(logDir, 'error.log');
-    
+
     const files = [];
-    
+
     if (fsSync.existsSync(appLogPath)) {
       const stats = fsSync.statSync(appLogPath);
       files.push({
@@ -1406,7 +1474,7 @@ apiRouter.get('/logs/application/info', async (_req: Request, res: Response): Pr
         mtime: stats.mtime,
       });
     }
-    
+
     if (fsSync.existsSync(errorLogPath)) {
       const stats = fsSync.statSync(errorLogPath);
       files.push({
@@ -1416,10 +1484,64 @@ apiRouter.get('/logs/application/info', async (_req: Request, res: Response): Pr
         mtime: stats.mtime,
       });
     }
-    
+
     res.json({ success: true, files });
   } catch (error: any) {
     logger.error('Failed to get application log info:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * 从机上传任务日志到主机
+ * POST /api/logs/upload
+ * Body (multipart/form-data):
+ *   - machineId: 从机ID
+ *   - taskId: 任务ID
+ *   - files: 日志文件数组
+ */
+apiRouter.post('/logs/upload', upload.array('files', 20), async (req: Request, res: Response): Promise<void> => {
+  try {
+    if (config.node.role !== 'master') {
+      res.status(403).json({
+        success: false,
+        error: 'This API is only available on master node',
+      });
+      return;
+    }
+
+    const { machineId, taskId } = req.body;
+    const files = req.files as Express.Multer.File[];
+
+    if (!machineId || !taskId) {
+      res.status(400).json({
+        success: false,
+        error: 'Missing required fields: machineId, taskId',
+      });
+      return;
+    }
+
+    if (!files || files.length === 0) {
+      res.status(400).json({
+        success: false,
+        error: 'No files uploaded',
+      });
+      return;
+    }
+
+    logger.info(`Received ${files.length} log files from slave ${machineId} for task ${taskId}`);
+
+    res.json({
+      success: true,
+      message: `Uploaded ${files.length} files successfully`,
+      files: files.map(f => ({
+        filename: f.filename,
+        size: f.size,
+        path: path.join(machineId, taskId, f.filename),
+      })),
+    });
+  } catch (error: any) {
+    logger.error('Failed to upload logs:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -1567,7 +1689,7 @@ apiRouter.post('/machines/heartbeat', async (req: Request, res: Response): Promi
 });
 
 /**
- * 获取所有从机列表（包含离线）
+ * 获取所有节点列表（包括主机和从机）
  */
 apiRouter.get('/machines', async (_req: Request, res: Response): Promise<void> => {
   try {
@@ -1579,10 +1701,36 @@ apiRouter.get('/machines', async (_req: Request, res: Response): Promise<void> =
       return;
     }
 
-    const slaves = await slaveManager.getAvailableSlaves();
+    // 查询所有机器（包括主机和从机）
+    const rows = await query(`
+      SELECT
+        id, name, ip_address, api_port, role, status,
+        cpu_usage, memory_usage, running_tasks, total_tasks,
+        sipp_version, last_heartbeat
+      FROM machines
+      ORDER BY
+        CASE role WHEN 'master' THEN 0 ELSE 1 END,
+        running_tasks ASC
+    `);
+
+    const machines = (rows as any[]).map(row => ({
+      id: row.id,
+      name: row.name,
+      ipAddress: row.ip_address,
+      apiPort: row.api_port,
+      role: row.role,
+      status: row.status,
+      cpuUsage: row.cpu_usage,
+      memoryUsage: row.memory_usage,
+      runningTasks: row.running_tasks,
+      totalTasks: row.total_tasks,
+      sippVersion: row.sipp_version,
+      lastHeartbeat: row.last_heartbeat,
+    }));
+
     res.json({
       success: true,
-      machines: slaves,
+      machines,
     });
   } catch (error: any) {
     logger.error('Failed to get machines:', error);
@@ -1630,6 +1778,12 @@ apiRouter.post('/machines/:id/health-check', async (req: Request, res: Response)
     const { id } = req.params;
     const healthy = await slaveManager.checkSlaveHealth(id);
 
+    // 根据健康检查结果更新从机状态
+    const newStatus = healthy ? 'online' : 'offline';
+    await query('UPDATE machines SET status = ? WHERE id = ?', [newStatus, id]);
+
+    logger.info(`Slave ${id} health check: ${healthy ? 'passed' : 'failed'}, status updated to ${newStatus}`);
+
     res.json({
       success: true,
       healthy,
@@ -1637,6 +1791,55 @@ apiRouter.post('/machines/:id/health-check', async (req: Request, res: Response)
     });
   } catch (error: any) {
     logger.error('Failed to check slave health:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * 删除从机记录（仅允许删除离线从机）
+ */
+apiRouter.delete('/machines/:id', async (req: Request, res: Response): Promise<void> => {
+  try {
+    if (config.node.role !== 'master') {
+      res.status(403).json({
+        success: false,
+        error: 'This API is only available on master node',
+      });
+      return;
+    }
+
+    const { id } = req.params;
+
+    // 查询从机状态
+    const machines = await query('SELECT status FROM machines WHERE id = ?', [id]);
+    if (machines.length === 0) {
+      res.status(404).json({
+        success: false,
+        error: `Machine not found: ${id}`,
+      });
+      return;
+    }
+
+    const machine = machines[0] as any;
+    if (machine.status !== 'offline') {
+      res.status(400).json({
+        success: false,
+        error: `Cannot delete online machine. Please ensure the machine is offline before deletion.`,
+      });
+      return;
+    }
+
+    // 删除从机记录
+    await query('DELETE FROM machines WHERE id = ?', [id]);
+
+    logger.info(`Slave ${id} deleted from database`);
+
+    res.json({
+      success: true,
+      message: `Machine ${id} deleted successfully`,
+    });
+  } catch (error: any) {
+    logger.error('Failed to delete machine:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });

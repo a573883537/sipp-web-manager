@@ -128,42 +128,93 @@ class SippWebManagerApp {
         if (allRunningTasks.length > 0) {
           logger.info(`${allRunningTasks.length} tasks running on other nodes (not cleaned)`);
         }
+      } else {
+        logger.info(`Found ${residualTasks.length} residual running tasks on ${currentMachineId}, cleaning up...`);
+
+        for (const task of residualTasks) {
+          // 如果进程还在运行，杀掉它
+          if (task.pid && this.isProcessAlive(task.pid)) {
+            logger.info(`Killing residual SIPp process ${task.pid} for task ${task.id}`);
+            try {
+              process.kill(task.pid, 'SIGTERM');
+              await this.waitForProcessExit(task.pid, 5000);
+              logger.info(`Successfully killed process ${task.pid}`);
+            } catch (error: any) {
+              logger.warn(`Failed to gracefully kill process ${task.pid}, forcing SIGKILL`);
+              try {
+                process.kill(task.pid, 'SIGKILL');
+              } catch (killError) {
+                logger.error(`Failed to kill process ${task.pid}:`, killError);
+              }
+            }
+          }
+
+          // 标记任务为失败
+          await taskHistoryRepository.update(task.id, {
+            status: 'FAILED',
+            end_time: Date.now(),
+            error: `Service restarted on ${currentMachineId}, residual task cleaned up`,
+          });
+
+          logger.info(`Task ${task.id} marked as FAILED (residual cleanup on ${currentMachineId})`);
+        }
+
+        logger.info(`Cleaned up ${residualTasks.length} residual tasks on ${currentMachineId}`);
+      }
+
+      // 从机模式：清理所有残留日志文件
+      if (config.node.role === 'slave') {
+        await this.cleanupResidualLogs();
+      }
+    } catch (error: any) {
+      logger.error('Failed to clean up residual tasks:', { error: error.message });
+    }
+  }
+
+  /**
+   * 清理残留日志文件（仅从机）
+   * 从机重启后删除所有任务日志，因为日志应该已上传到主机
+   */
+  private async cleanupResidualLogs(): Promise<void> {
+    try {
+      const logDir = config.sipp.logDir;
+
+      if (!fs.existsSync(logDir)) {
+        logger.info('Log directory does not exist, skipping log cleanup');
         return;
       }
 
-      logger.info(`Found ${residualTasks.length} residual running tasks on ${currentMachineId}, cleaning up...`);
+      const files = fs.readdirSync(logDir);
 
-      for (const task of residualTasks) {
-        // 如果进程还在运行，杀掉它
-        if (task.pid && this.isProcessAlive(task.pid)) {
-          logger.info(`Killing residual SIPp process ${task.pid} for task ${task.id}`);
-          try {
-            process.kill(task.pid, 'SIGTERM');
-            await this.waitForProcessExit(task.pid, 5000);
-            logger.info(`Successfully killed process ${task.pid}`);
-          } catch (error: any) {
-            logger.warn(`Failed to gracefully kill process ${task.pid}, forcing SIGKILL`);
-            try {
-              process.kill(task.pid, 'SIGKILL');
-            } catch (killError) {
-              logger.error(`Failed to kill process ${task.pid}:`, killError);
-            }
-          }
-        }
+      // 过滤出任务日志文件（排除应用日志 app.log / error.log）
+      const taskLogFiles = files.filter(f => {
+        const isAppLog = f === 'app.log' || f === 'error.log';
+        const isTaskLog = f.includes('task_') || f.endsWith('.csv') || f.endsWith('.log');
+        return !isAppLog && isTaskLog;
+      });
 
-        // 标记任务为失败
-        await taskHistoryRepository.update(task.id, {
-          status: 'FAILED',
-          end_time: Date.now(),
-          error: `Service restarted on ${currentMachineId}, residual task cleaned up`,
-        });
-
-        logger.info(`Task ${task.id} marked as FAILED (residual cleanup on ${currentMachineId})`);
+      if (taskLogFiles.length === 0) {
+        logger.info('No residual task log files to clean up');
+        return;
       }
 
-      logger.info(`Cleaned up ${residualTasks.length} residual tasks on ${currentMachineId}`);
+      logger.info(`Found ${taskLogFiles.length} residual task log files, deleting...`);
+
+      let deletedCount = 0;
+      for (const file of taskLogFiles) {
+        try {
+          const filePath = path.join(logDir, file);
+          fs.unlinkSync(filePath);
+          deletedCount++;
+          logger.debug(`Deleted residual log file: ${file}`);
+        } catch (err: any) {
+          logger.warn(`Failed to delete log file ${file}:`, err.message);
+        }
+      }
+
+      logger.info(`Cleaned up ${deletedCount}/${taskLogFiles.length} residual log files`);
     } catch (error: any) {
-      logger.error('Failed to clean up residual tasks:', { error: error.message });
+      logger.error('Failed to clean up residual logs:', error.message);
     }
   }
 
