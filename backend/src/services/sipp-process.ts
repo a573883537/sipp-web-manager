@@ -80,6 +80,7 @@ class SippProcessInstance extends EventEmitter {
   async pause(): Promise<void> {
     await this.sendCommand('p');
     this.isPaused = !this.isPaused;
+    this.emit('paused', { taskId: this.taskId, isPaused: this.isPaused });
   }
 
   /**
@@ -472,6 +473,7 @@ export class SippProcessManager extends EventEmitter {
       processInstance.on('error', (data) => this.emit('error', data));
       processInstance.on('started', (data) => this.emit('started', data));
       processInstance.on('stopped', (data) => this.emit('stopped', data));
+      processInstance.on('paused', (data) => this.emit('paused', data));
 
       // 保存到进程列表
       this.processes.set(taskId, processInstance);
@@ -510,6 +512,7 @@ export class SippProcessManager extends EventEmitter {
     processInstance.on('error', (data) => this.emit('error', data));
     processInstance.on('started', (data) => this.emit('started', data));
     processInstance.on('stopped', (data) => this.emit('stopped', data));
+    processInstance.on('paused', (data) => this.emit('paused', data));
 
     // 保存进程实例
     this.processes.set(taskId, processInstance);

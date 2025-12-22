@@ -6,7 +6,9 @@ import { sippClient } from '../services/sipp-client';
 import { sippProcessManager } from '../services/sipp-process';
 import { CsvParser } from '../parsers/csv-parser';
 import { taskHistoryRepository } from '../database/task-history-repository';
+import { query } from '../database';
 import path from 'path';
+import axios from 'axios';
 
 /**
  * WebSocket服务
@@ -111,6 +113,19 @@ export class WebSocketService {
           pid: data.pid,
         });
         logger.info('Task started', { taskId, pid: data.pid });
+      }
+    });
+
+    // 暂停/恢复
+    sippProcessManager.on('paused', (data) => {
+      const taskId = data.taskId;
+      if (taskId) {
+        this.broadcast('task:paused', {
+          taskId,
+          isPaused: data.isPaused,
+          timestamp: Date.now(),
+        });
+        logger.info('Task paused state changed', { taskId, isPaused: data.isPaused });
       }
     });
 
@@ -347,7 +362,7 @@ export class WebSocketService {
 
   /**
    * 启动任务统计数据推送
-   * 定期推送所有运行中任务的统计数据
+   * 定期推送所有运行中任务的统计数据（支持从机）
    */
   startTaskStatsPolling(interval: number = 3000): void {
     if (this.taskStatsInterval) {
@@ -359,7 +374,7 @@ export class WebSocketService {
       try {
         // 获取所有运行中的任务
         const runningTasks = await taskHistoryRepository.findByStatus('RUNNING');
-        
+
         if (runningTasks.length === 0) {
           return;
         }
@@ -368,15 +383,40 @@ export class WebSocketService {
         const tasksWithStats = await Promise.all(
           runningTasks.map(async (task) => {
             try {
-              const csvPath = path.join(config.sipp.logDir, `${task.id}_stats.csv`);
-              const parser = new CsvParser({ filePath: csvPath, watchMode: false });
-              const stats = await parser.getLatest();
-              
+              // 判断任务所在机器
+              const isLocal = task.machine_id === 'master' || task.machine_id === config.node.machineId;
+
+              let stats = null;
+
+              if (isLocal) {
+                // 本地任务：直接读取 CSV 文件
+                const csvPath = path.join(config.sipp.logDir, `${task.id}_stats.csv`);
+                const parser = new CsvParser({ filePath: csvPath, watchMode: false });
+                stats = await parser.getLatest();
+              } else {
+                // 远程任务：通过 HTTP API 获取
+                try {
+                  // 从数据库查找机器信息
+                  const machines = await query('SELECT * FROM machines WHERE id = ?', [task.machine_id]);
+                  if (machines.length > 0) {
+                    const machine = machines[0] as any;
+                    const slaveUrl = `http://${machine.ip_address}:${machine.api_port}/api/sipp/stats/${task.id}`;
+
+                    const response = await axios.get(slaveUrl, { timeout: 3000 });
+                    if (response.data.success && response.data.stats) {
+                      stats = response.data.stats;
+                    }
+                  }
+                } catch (remoteError: any) {
+                  logger.debug(`Failed to get remote stats for task ${task.id} on ${task.machine_id}:`, remoteError.message);
+                }
+              }
+
               if (stats) {
                 const successRate = stats.totalCalls > 0
                   ? Math.round((stats.successCalls / stats.totalCalls) * 10000) / 100
                   : 0;
-                
+
                 return {
                   taskId: task.id,
                   stats: {

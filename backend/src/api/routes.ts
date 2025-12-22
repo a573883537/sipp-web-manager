@@ -909,10 +909,44 @@ apiRouter.put('/task-history/:id', async (req: Request, res: Response): Promise<
 
 /**
  * 删除任务历史记录（同时删除相关日志文件）
+ * 如果任务在从机上，会同步删除从机的日志
  */
 apiRouter.delete('/task-history/:id', async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
+
+    // 获取任务信息以确定所属机器
+    const task = await taskHistoryRepository.findById(id);
+    if (!task) {
+      res.status(404).json({
+        success: false,
+        error: 'Task not found',
+      });
+      return;
+    }
+
+    // 如果任务在从机上，尝试删除从机的日志
+    if (config.node.role === 'master' &&
+        task.machine_id !== 'master' &&
+        task.machine_id !== config.node.machineId) {
+      try {
+        const machines = await query('SELECT * FROM machines WHERE id = ?', [task.machine_id]);
+        if (machines.length > 0) {
+          const machine = machines[0] as any;
+          const slaveUrl = `http://${machine.ip_address}:${machine.api_port}/api/logs/task/${id}/delete`;
+
+          logger.info(`Requesting log deletion from slave ${task.machine_id} at ${slaveUrl}`);
+
+          await axios.delete(slaveUrl, { timeout: 5000 });
+          logger.info(`Slave logs deleted successfully for task ${id}`);
+        }
+      } catch (remoteError: any) {
+        // 从机删除失败不应阻止主机删除任务记录
+        logger.warn(`Failed to delete remote logs for task ${id}:`, remoteError.message);
+      }
+    }
+
+    // 删除数据库记录
     const deleted = await taskHistoryRepository.delete(id);
 
     if (!deleted) {
@@ -923,7 +957,7 @@ apiRouter.delete('/task-history/:id', async (req: Request, res: Response): Promi
       return;
     }
 
-    // 删除相关日志文件
+    // 删除本地日志文件
     const logDir = config.sipp.logDir;
     try {
       const files = fsSync.readdirSync(logDir);
@@ -943,6 +977,46 @@ apiRouter.delete('/task-history/:id', async (req: Request, res: Response): Promi
     });
   } catch (error: any) {
     logger.error('Failed to delete task history:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * 删除任务日志文件（供从机调用）
+ * 仅删除日志文件，不删除数据库记录
+ */
+apiRouter.delete('/logs/task/:taskId/delete', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { taskId } = req.params;
+    const logDir = config.sipp.logDir;
+
+    const files = fsSync.readdirSync(logDir);
+    const taskFiles = files.filter(f => f.includes(taskId));
+
+    if (taskFiles.length === 0) {
+      res.status(404).json({ success: false, error: 'No log files found for this task' });
+      return;
+    }
+
+    let deletedCount = 0;
+    for (const file of taskFiles) {
+      try {
+        const filePath = path.join(logDir, file);
+        fsSync.unlinkSync(filePath);
+        deletedCount++;
+        logger.info(`Deleted log file: ${file}`);
+      } catch (err) {
+        logger.warn(`Failed to delete log file: ${file}`, err);
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Deleted ${deletedCount} log files for task ${taskId}`,
+      deletedCount,
+    });
+  } catch (error: any) {
+    logger.error('Failed to delete task logs:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -1118,23 +1192,23 @@ apiRouter.get('/logs/task/:taskId/download', async (req: Request, res: Response)
   try {
     const { taskId } = req.params;
     const logDir = config.sipp.logDir;
-    
+
     // 查找所有与该任务相关的日志文件
     const files = fsSync.readdirSync(logDir);
     const taskLogFiles = files.filter(f => f.includes(taskId));
-    
+
     if (taskLogFiles.length === 0) {
       res.status(404).json({ success: false, error: 'No log files found for this task' });
       return;
     }
-    
+
     // 使用 archiver 打包为 ZIP
     const archiver = require('archiver');
     const archive = archiver('zip', { zlib: { level: 9 } });
-    
+
     res.attachment(`task_${taskId}_logs.zip`);
     archive.pipe(res);
-    
+
     // 添加所有相关日志文件到压缩包
     for (const file of taskLogFiles) {
       const filePath = path.join(logDir, file);
@@ -1142,13 +1216,87 @@ apiRouter.get('/logs/task/:taskId/download', async (req: Request, res: Response)
         archive.file(filePath, { name: file });
       }
     }
-    
+
     archive.finalize();
-    
+
     logger.info('Task logs downloaded', { taskId, files: taskLogFiles.length });
   } catch (error: any) {
     logger.error('Failed to download task logs:', error);
     res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * 远程下载任务日志（主机转发到从机）
+ * 用于从主机下载从机上的任务日志
+ */
+apiRouter.get('/logs/task/:taskId/download-remote', async (req: Request, res: Response): Promise<void> => {
+  try {
+    if (config.node.role !== 'master') {
+      res.status(403).json({
+        success: false,
+        error: 'This API is only available on master node',
+      });
+      return;
+    }
+
+    const { taskId } = req.params;
+
+    // 从数据库查找任务所属的机器
+    const task = await taskHistoryRepository.findById(taskId);
+    if (!task) {
+      res.status(404).json({
+        success: false,
+        error: `Task not found: ${taskId}`,
+      });
+      return;
+    }
+
+    const machineId = task.machine_id;
+
+    // 如果是主机任务，直接本地下载
+    if (machineId === 'master' || machineId === config.node.machineId) {
+      // 重定向到本地下载接口
+      res.redirect(`/api/logs/task/${taskId}/download`);
+      return;
+    }
+
+    // 从机任务：转发到从机
+    const machines = await query('SELECT * FROM machines WHERE id = ?', [machineId]);
+    if (machines.length === 0) {
+      res.status(404).json({
+        success: false,
+        error: `Machine not found: ${machineId}`,
+      });
+      return;
+    }
+
+    const machine = machines[0] as any;
+    const slaveUrl = `http://${machine.ip_address}:${machine.api_port}/api/logs/task/${taskId}/download`;
+
+    logger.info(`Forwarding log download to slave ${machineId} at ${slaveUrl}`);
+
+    // 使用流式传输转发日志文件
+    const response = await axios.get(slaveUrl, {
+      responseType: 'stream',
+      timeout: 30000,
+    });
+
+    // 设置响应头
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="task_${taskId}_logs.zip"`);
+
+    // 将从机的响应流管道到客户端
+    response.data.pipe(res);
+
+    logger.info(`Log download forwarded from ${machineId}`, { taskId });
+  } catch (error: any) {
+    logger.error('Failed to download remote task logs:', error);
+    const errorMsg = error.response?.data?.error || error.message;
+    res.status(error.response?.status || 500).json({
+      success: false,
+      error: errorMsg,
+    });
   }
 });
 
