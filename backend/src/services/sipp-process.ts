@@ -156,6 +156,7 @@ class SippProcessInstance extends EventEmitter {
       enableRtpEcho = false,
       mediaIp,
       oocsf,
+      autoAnswer = false,
     } = options;
 
     // 初始化状态
@@ -276,6 +277,7 @@ class SippProcessInstance extends EventEmitter {
     if (options.localIp) args.push('-i', options.localIp);
     if (options.bindLocal) args.push('-bind_local');
     if (options.rsa) args.push('-rsa', options.rsa);
+    if (autoAnswer) args.push('-aa');
 
     logger.info('Starting SIPp process', {
       taskId: this.taskId,
@@ -656,6 +658,7 @@ export interface SippStartOptions {
   enableRtpEcho?: boolean; // 启用RTP回音（测试用，将收到的RTP包原样返回）
   mediaIp?: string;        // 媒体IP地址（默认：本地IP）
   oocsf?: string;          // 会话外场景文件（Out Of Call Scenario File），用于处理 NOTIFY/OPTIONS 等
+  autoAnswer?: boolean;    // 自动应答会话外消息 (-aa)，自动对 INFO/NOTIFY/OPTIONS/UPDATE 回复 200 OK
   // 日志追踪选项
   traceMsg?: boolean;      // 追踪SIP消息 (-trace_msg)
   traceErr?: boolean;      // 追踪错误 (-trace_err)

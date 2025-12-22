@@ -101,6 +101,7 @@ apiRouter.post('/sipp/start', async (req: Request, res: Response): Promise<void>
       localIp,
       bindLocal,
       rsa,
+      autoAnswer,
     } = req.body;
 
     if (!scenarioFile) {
@@ -144,6 +145,7 @@ apiRouter.post('/sipp/start', async (req: Request, res: Response): Promise<void>
       localIp,
       bindLocal,
       rsa,
+      autoAnswer,
     });
 
     // 保存 pid 和 control_port 到数据库

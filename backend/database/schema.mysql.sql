@@ -114,7 +114,8 @@ VALUES (
         'traceShortmsg', false,
         'traceLogs', false,
         'traceRtt', false,
-        'bindLocal', false
+        'bindLocal', false,
+        'autoAnswer', false
     ),
     1
 );

@@ -449,6 +449,7 @@ const Scenarios: React.FC = () => {
           minRtpPort: values.minRtpPort,
           maxRtpPort: values.maxRtpPort,
           oocsf: values.oocsf,
+          autoAnswer: values.autoAnswer,
         },
       };
 
@@ -657,6 +658,7 @@ const Scenarios: React.FC = () => {
             traceLogs: false,
             traceRtt: false,
             bindLocal: false,
+            autoAnswer: false,
           }}
         >
           <Form.Item name="scenarioFile" hidden>
@@ -870,6 +872,14 @@ const Scenarios: React.FC = () => {
                     </Form.Item>
                     <Form.Item name="rsa" label="Remote Send Address">
                       <Input placeholder="host:port" />
+                    </Form.Item>
+                    <Form.Item
+                      name="autoAnswer"
+                      label="Auto Answer (会话外消息自动应答)"
+                      valuePropName="checked"
+                      tooltip="自动对 INFO/NOTIFY/OPTIONS/UPDATE 等会话外消息回复 200 OK (-aa)"
+                    >
+                      <Switch />
                     </Form.Item>
                   </Space>
                 ),

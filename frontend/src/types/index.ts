@@ -317,6 +317,7 @@ export interface TestTask {
     minRtpPort?: number;
     maxRtpPort?: number;
     oocsf?: string;
+    autoAnswer?: boolean;
   };
   stats?: {
     totalCalls: number;

@@ -184,6 +184,7 @@ class ApiService {
     traceLogs?: boolean;
     traceRtt?: boolean;
     traceScreen?: boolean;
+    autoAnswer?: boolean; // 自动应答会话外消息
   }): Promise<ApiResponse> {
     // 移除仅用于前端参考的字段
     const { mediaIpType, ...backendParams } = params;
