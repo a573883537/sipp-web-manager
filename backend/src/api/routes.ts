@@ -80,6 +80,7 @@ apiRouter.post('/sipp/start', async (req: Request, res: Response): Promise<void>
       scenarioFile,
       scenarioContent, // 新增：场景文件内容（从主机推送）
       injectionContent, // 新增：注入文件内容（从主机推送）
+      oocsfContent, // 新增：oocsf文件内容（从主机推送）
       machineId, // 新增：指定从机ID，不指定则自动选择
       rate = 10,
       users = 100,
@@ -140,6 +141,13 @@ apiRouter.post('/sipp/start', async (req: Request, res: Response): Promise<void>
         await fs.mkdir(path.dirname(injectionPath), { recursive: true });
         await fs.writeFile(injectionPath, injectionContent, 'utf-8');
         logger.info(`Injection file saved from master: ${injectionPath}`);
+      }
+
+      if (oocsfContent && oocsf) {
+        const oocsfPath = path.join(config.sipp.scenarioDir, oocsf);
+        await fs.mkdir(path.dirname(oocsfPath), { recursive: true });
+        await fs.writeFile(oocsfPath, oocsfContent, 'utf-8');
+        logger.info(`OOCSF file saved from master: ${oocsfPath}`);
       }
     }
 
@@ -1357,10 +1365,12 @@ apiRouter.post('/machines/heartbeat', async (req: Request, res: Response): Promi
     }
 
     // 同步更新 machines 表的 total_tasks（从 task_history 统计）
+    // 使用 COLLATE 解决字符集排序规则冲突
     await query(`
       UPDATE machines m
       SET total_tasks = (
-        SELECT COUNT(*) FROM task_history WHERE machine_id = m.id
+        SELECT COUNT(*) FROM task_history
+        WHERE machine_id COLLATE utf8mb4_unicode_ci = m.id COLLATE utf8mb4_unicode_ci
       )
       WHERE m.id = ?
     `, [id]);

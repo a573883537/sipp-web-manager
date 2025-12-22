@@ -119,6 +119,13 @@ export class SlaveManager {
         injectionContent = await this.readFileIfExists(injectionPath);
       }
 
+      // 读取 oocsf 文件内容（如果有）
+      let oocsfContent: string | undefined;
+      if (options.oocsf) {
+        const oocsfPath = path.join(config.sipp.scenarioDir, options.oocsf);
+        oocsfContent = await this.readFileIfExists(oocsfPath);
+      }
+
       const response = await axios.post(
         url,
         {
@@ -126,6 +133,7 @@ export class SlaveManager {
           scenarioFile,
           scenarioContent, // 传递场景文件内容
           injectionContent, // 传递注入文件内容
+          oocsfContent, // 传递 oocsf 文件内容
           ...options,
         },
         {
