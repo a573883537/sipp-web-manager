@@ -178,7 +178,7 @@ export class HeartbeatService {
 
     // CPU 使用率计算（需要两次采样的差值）
     let cpuUsage = 0;
-    
+
     // 计算当前 CPU 时间
     const currentIdle = cpus.reduce((acc, cpu) => acc + cpu.times.idle, 0);
     const currentTotal = cpus.reduce((acc, cpu) => {
@@ -189,7 +189,28 @@ export class HeartbeatService {
       // 有上次采样数据，计算使用率
       const idleDiff = currentIdle - this.lastCpuTimes.idle;
       const totalDiff = currentTotal - this.lastCpuTimes.total;
-      
+
+      if (totalDiff > 0) {
+        cpuUsage = ((totalDiff - idleDiff) / totalDiff) * 100;
+      }
+    } else {
+      // 首次采样：等待100ms后再次采样以获取即时CPU使用率
+      const sleepMs = 100;
+      const start = Date.now();
+      while (Date.now() - start < sleepMs) {
+        // 短暂等待
+      }
+
+      // 第二次采样
+      const cpus2 = os.cpus();
+      const idle2 = cpus2.reduce((acc, cpu) => acc + cpu.times.idle, 0);
+      const total2 = cpus2.reduce((acc, cpu) => {
+        return acc + Object.values(cpu.times).reduce((a, b) => a + b, 0);
+      }, 0);
+
+      const idleDiff = idle2 - currentIdle;
+      const totalDiff = total2 - currentTotal;
+
       if (totalDiff > 0) {
         cpuUsage = ((totalDiff - idleDiff) / totalDiff) * 100;
       }

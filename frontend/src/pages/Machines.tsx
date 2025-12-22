@@ -692,8 +692,8 @@ const Machines: React.FC = () => {
         <Col span={6}>
           <Card>
             <Statistic
-              title="平均负载"
-              value={`CPU ${isNaN(statistics.avgCpu) ? '0.0' : statistics.avgCpu.toFixed(1)}% / MEM ${isNaN(statistics.avgMemory) ? '0.0' : statistics.avgMemory.toFixed(1)}%`}
+              title="平均负载 (CPU / 内存)"
+              value={`${isNaN(statistics.avgCpu) ? '0.0' : statistics.avgCpu.toFixed(1)}% / ${isNaN(statistics.avgMemory) ? '0.0' : statistics.avgMemory.toFixed(1)}%`}
             />
           </Card>
         </Col>
