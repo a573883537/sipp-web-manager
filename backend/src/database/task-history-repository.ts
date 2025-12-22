@@ -12,6 +12,7 @@ export interface TaskHistoryRecord {
   scenario_name: string;
   scenario_file: string;
   status: 'RUNNING' | 'COMPLETED' | 'FAILED' | 'STOPPED';
+  machine_id: string;
   config: {
     rate: number;
     users: number;
@@ -69,16 +70,47 @@ export interface UpdateTaskHistoryInput {
  */
 export class TaskHistoryRepository {
   /**
-   * 查询所有任务历史
+   * 查询所有已完成的任务历史（不包括正在运行的）
    */
   async findAll(): Promise<TaskHistoryRecord[]> {
     try {
       const rows = await query<TaskHistoryRecord>(
-        'SELECT * FROM task_history ORDER BY start_time DESC'
+        `SELECT * FROM task_history
+         WHERE status != 'RUNNING'
+         ORDER BY start_time DESC`
       );
       return rows.map(this.parseJsonFields);
     } catch (error: any) {
       logger.error('Failed to find all task history', { error: error.message });
+      throw error;
+    }
+  }
+
+  /**
+   * 查询所有正在运行的任务（按机器分组）
+   */
+  async findRunningByMachine(): Promise<Record<string, TaskHistoryRecord[]>> {
+    try {
+      const rows = await query<TaskHistoryRecord>(
+        `SELECT * FROM task_history
+         WHERE status = 'RUNNING'
+         ORDER BY machine_id, start_time DESC`
+      );
+
+      const parsed = rows.map(this.parseJsonFields);
+
+      // 按 machine_id 分组
+      const grouped: Record<string, TaskHistoryRecord[]> = {};
+      for (const task of parsed) {
+        if (!grouped[task.machine_id]) {
+          grouped[task.machine_id] = [];
+        }
+        grouped[task.machine_id].push(task);
+      }
+
+      return grouped;
+    } catch (error: any) {
+      logger.error('Failed to find running tasks by machine', { error: error.message });
       throw error;
     }
   }

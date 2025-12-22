@@ -302,6 +302,7 @@ export interface TestTask {
   scenarioFile: string;
   scenarioName: string;
   status: TestTaskStatus;
+  machineId?: string;
   startTime: number;
   endTime?: number;
   duration?: number;

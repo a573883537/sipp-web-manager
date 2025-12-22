@@ -285,10 +285,17 @@ class ApiService {
   }
 
   /**
-   * 获取所有任务历史
+   * 获取所有任务历史（仅已完成）
    */
   async getTaskHistory(): Promise<ApiResponse<{ tasks: any[] }>> {
     return this.client.get('/task-history');
+  }
+
+  /**
+   * 获取正在运行的任务（按机器分组）
+   */
+  async getRunningTasksByMachine(): Promise<ApiResponse<{ tasksByMachine: Record<string, any[]> }>> {
+    return this.client.get('/tasks/running-by-machine');
   }
 
   /**

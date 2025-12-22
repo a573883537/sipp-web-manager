@@ -762,7 +762,7 @@ apiRouter.post('/injection-files/validate', (req: Request, res: Response) => {
  */
 
 /**
- * 获取所有任务历史
+ * 获取所有任务历史（仅已完成的任务）
  */
 apiRouter.get('/task-history', async (_req: Request, res: Response): Promise<void> => {
   try {
@@ -773,6 +773,22 @@ apiRouter.get('/task-history', async (_req: Request, res: Response): Promise<voi
     });
   } catch (error: any) {
     logger.error('Failed to get task history:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * 获取正在运行的任务（按机器分组）
+ */
+apiRouter.get('/tasks/running-by-machine', async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const tasksByMachine = await taskHistoryRepository.findRunningByMachine();
+    res.json({
+      success: true,
+      tasksByMachine,
+    });
+  } catch (error: any) {
+    logger.error('Failed to get running tasks by machine:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });

@@ -88,8 +88,8 @@ class SippWebManagerApp {
       await initializeDatabase();
       logger.info('Database initialized successfully');
 
-      // 恢复运行中任务的状态
-      await this.recoverRunningTasks();
+      // 清理启动前残留的运行中任务
+      await this.cleanupResidualTasks();
     } catch (error: any) {
       logger.error('Database initialization error:', { error: error.message });
       
@@ -104,76 +104,55 @@ class SippWebManagerApp {
   }
 
   /**
-   * 恢复运行中任务的状态
+   * 清理启动前残留的运行中任务
+   *
    * Kernel 风格设计：
-   * - backend_pid 作为所有权标记，消除"恢复"vs"标记失败"的特殊情况
-   * - 统一规则：只接管属于当前后端实例的任务，清理孤儿进程
-   * - 数据结构驱动：backend_pid == process.pid → 我的任务，否则 → 孤儿
+   * - 简化策略：服务重启时不尝试恢复进程，统一清理所有残留
+   * - 数据结构驱动：status='RUNNING' → 残留任务，直接清理
+   * - 最小复杂度：消除"恢复"、"接管"、"孤儿"等特殊情况
    */
-  private async recoverRunningTasks(): Promise<void> {
+  private async cleanupResidualTasks(): Promise<void> {
     try {
       const runningTasks = await taskHistoryRepository.findByStatus('RUNNING');
-      logger.info(`Found ${runningTasks.length} tasks with RUNNING status`);
+
+      if (runningTasks.length === 0) {
+        logger.info('No residual running tasks to clean up');
+        return;
+      }
+
+      logger.info(`Found ${runningTasks.length} residual running tasks, cleaning up...`);
 
       for (const task of runningTasks) {
-        const isMyTask = task.backend_pid === process.pid;
-        const isOrphan = !task.backend_pid || task.backend_pid !== process.pid;
-        const processAlive = task.pid ? this.isProcessAlive(task.pid) : false;
-
-        if (isMyTask && processAlive && task.pid && task.control_port) {
-          // 情况1：我创建的任务，进程存活 → 恢复控制（正常重启场景不应出现）
-          logger.info(`Task ${task.id} belongs to current backend (PID: ${task.pid}), recovering control`);
-          try {
-            await sippProcessManager.recoverProcess(task.id, task.pid, task.control_port);
-            logger.info(`Successfully recovered control for task ${task.id}`);
-          } catch (error: any) {
-            logger.error(`Failed to recover control for task ${task.id}:`, error);
-          }
-        } else if (isOrphan && processAlive && task.pid) {
-          // 情况2：孤儿进程（没有 backend_pid 或 backend_pid 不匹配）且仍在运行 → 清理
-          logger.warn(
-            `Task ${task.id} is orphaned (backend_pid: ${task.backend_pid || 'NULL'}, current: ${process.pid}, sipp_pid: ${task.pid}), killing process`
-          );
+        // 如果进程还在运行，杀掉它
+        if (task.pid && this.isProcessAlive(task.pid)) {
+          logger.info(`Killing residual SIPp process ${task.pid} for task ${task.id}`);
           try {
             process.kill(task.pid, 'SIGTERM');
-            // 等待进程退出
             await this.waitForProcessExit(task.pid, 5000);
-            logger.info(`Killed orphaned process ${task.pid} for task ${task.id}`);
+            logger.info(`Successfully killed process ${task.pid}`);
           } catch (error: any) {
-            logger.error(`Failed to kill orphaned process ${task.pid}:`, error);
-            // 强制杀死
+            logger.warn(`Failed to gracefully kill process ${task.pid}, forcing SIGKILL`);
             try {
               process.kill(task.pid, 'SIGKILL');
-            } catch {}
+            } catch (killError) {
+              logger.error(`Failed to kill process ${task.pid}:`, killError);
+            }
           }
-          // 标记为失败
-          await taskHistoryRepository.update(task.id, {
-            status: 'FAILED',
-            end_time: Date.now(),
-            error: task.backend_pid
-              ? `Orphaned process cleaned up (backend restarted, old backend_pid: ${task.backend_pid})`
-              : 'Orphaned process cleaned up (old task without backend_pid)',
-          });
-        } else if (!processAlive) {
-          // 情况3：进程已死亡 → 标记为失败
-          logger.warn(`Task ${task.id} (PID: ${task.pid}) process not found, marking as FAILED`);
-          await taskHistoryRepository.update(task.id, {
-            status: 'FAILED',
-            end_time: Date.now(),
-            error: 'Process exited while service was down',
-          });
-        } else {
-          // 情况4：没有足够信息恢复（没有 PID）→ 标记为失败
-          logger.warn(`Task ${task.id} has no PID for recovery, marking as FAILED`);
-          await taskHistoryRepository.update(task.id, {
-            status: 'FAILED',
-            end_time: Date.now(),
-            error: 'No PID information for recovery',
-          });
         }
+
+        // 标记任务为失败
+        await taskHistoryRepository.update(task.id, {
+          status: 'FAILED',
+          end_time: Date.now(),
+          error: 'Service restarted, residual task cleaned up',
+        });
+
+        logger.info(`Task ${task.id} marked as FAILED (residual cleanup)`);
       }
+
+      logger.info(`Cleaned up ${runningTasks.length} residual tasks`);
     } catch (error: any) {
-      logger.error('Failed to recover running tasks:', { error: error.message });
+      logger.error('Failed to clean up residual tasks:', { error: error.message });
     }
   }
 

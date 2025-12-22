@@ -19,6 +19,7 @@ import {
   CloseCircleOutlined,
   ClockCircleOutlined,
   ApiOutlined,
+  PlayCircleOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { apiService } from '@/services/api';
@@ -34,25 +35,34 @@ const { Text } = Typography;
 
 /**
  * 从机管理页面
- * 职责：显示和管理所有从机节点
+ * 显示所有节点（包括主机）及其正在运行的任务
  */
 const Machines: React.FC = () => {
   const [machines, setMachines] = useState<MachineInfo[]>([]);
+  const [runningTasksByMachine, setRunningTasksByMachine] = useState<Record<string, any[]>>({});
   const [loading, setLoading] = useState(false);
   const [healthChecking, setHealthChecking] = useState<Record<string, boolean>>({});
 
   /**
-   * 加载从机列表
+   * 加载机器列表和正在运行的任务
    */
   const loadMachines = async () => {
     setLoading(true);
     try {
-      const response = await apiService.getMachines();
-      if (response.success && response.machines) {
-        setMachines(response.machines);
+      const [machinesResponse, tasksResponse] = await Promise.all([
+        apiService.getMachines(),
+        apiService.getRunningTasksByMachine(),
+      ]);
+
+      if (machinesResponse.success && machinesResponse.machines) {
+        setMachines(machinesResponse.machines);
+      }
+
+      if (tasksResponse.success && tasksResponse.tasksByMachine) {
+        setRunningTasksByMachine(tasksResponse.tasksByMachine);
       }
     } catch (error: any) {
-      message.error(`加载从机列表失败: ${error.message}`);
+      message.error(`加载数据失败: ${error.message}`);
     } finally {
       setLoading(false);
     }
@@ -62,22 +72,21 @@ const Machines: React.FC = () => {
    * 健康检查
    */
   const handleHealthCheck = async (machineId: string) => {
-    setHealthChecking(prev => ({ ...prev, [machineId]: true }));
+    setHealthChecking((prev) => ({ ...prev, [machineId]: true }));
     try {
       const response = await apiService.checkMachineHealth(machineId);
       if (response.success) {
         message.success(
           response.healthy
-            ? `从机 ${machineId} 健康检查通过`
-            : `从机 ${machineId} 健康检查失败`
+            ? `机器 ${machineId} 健康检查通过`
+            : `机器 ${machineId} 健康检查失败`
         );
-        // 重新加载列表以获取最新状态
         await loadMachines();
       }
     } catch (error: any) {
       message.error(`健康检查失败: ${error.message}`);
     } finally {
-      setHealthChecking(prev => ({ ...prev, [machineId]: false }));
+      setHealthChecking((prev) => ({ ...prev, [machineId]: false }));
     }
   };
 
@@ -91,7 +100,11 @@ const Machines: React.FC = () => {
       busy: { color: 'warning', icon: <ClockCircleOutlined />, text: '繁忙' },
     };
     const { color, icon, text } = config[status as keyof typeof config] || config.offline;
-    return <Tag color={color} icon={icon}>{text}</Tag>;
+    return (
+      <Tag color={color} icon={icon}>
+        {text}
+      </Tag>
+    );
   };
 
   /**
@@ -102,19 +115,141 @@ const Machines: React.FC = () => {
     const diff = now - timestamp;
 
     if (diff < 30000) {
-      // 30秒内
       return <Text type="success">刚刚</Text>;
     } else if (diff < 60000) {
-      // 1分钟内
       return <Text type="warning">{dayjs(timestamp).fromNow()}</Text>;
     } else {
-      // 超过1分钟
       return <Text type="danger">{dayjs(timestamp).fromNow()}</Text>;
     }
   };
 
   /**
-   * 表格列配置
+   * 格式化持续时间
+   */
+  const formatDuration = (startTime: number): string => {
+    const duration = Date.now() - startTime;
+    const seconds = Math.floor(duration / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+
+    if (hours > 0) {
+      return `${hours}h ${minutes % 60}m`;
+    } else if (minutes > 0) {
+      return `${minutes}m`;
+    } else {
+      return `${seconds}s`;
+    }
+  };
+
+  /**
+   * 正在运行的任务列配置（展开行）
+   */
+  const runningTaskColumns: ColumnsType<any> = [
+    {
+      title: '场景名称',
+      dataIndex: 'scenario_name',
+      key: 'scenario_name',
+      width: 200,
+      render: (name: string, record) => (
+        <Space direction="vertical" size={0}>
+          <Text strong>{name}</Text>
+          <Text type="secondary" style={{ fontSize: '12px' }}>
+            {record.scenario_file}
+          </Text>
+        </Space>
+      ),
+    },
+    {
+      title: '测试配置',
+      key: 'config',
+      width: 220,
+      render: (_: any, record) => {
+        const config = record.config;
+        return (
+          <Space direction="vertical" size={0}>
+            <Text style={{ fontSize: '12px' }}>
+              <ClockCircleOutlined /> 速率: {config.rate} calls/s
+            </Text>
+            <Text style={{ fontSize: '12px' }}>
+              用户数: {config.users} | 限制: {config.limit || '∞'}
+            </Text>
+            <Text style={{ fontSize: '12px' }}>
+              目标: {config.remoteHost}:{config.remotePort}
+            </Text>
+          </Space>
+        );
+      },
+    },
+    {
+      title: '统计数据',
+      key: 'stats',
+      width: 180,
+      render: (_: any, record) => {
+        if (!record.stats) {
+          return <Text type="secondary">等待数据...</Text>;
+        }
+        const { totalCalls, successCalls, failedCalls, successRate } = record.stats;
+        return (
+          <Space direction="vertical" size={0}>
+            <Text style={{ fontSize: '12px' }}>总呼叫: {totalCalls}</Text>
+            <Text style={{ fontSize: '12px', color: '#52c41a' }}>成功: {successCalls}</Text>
+            <Text style={{ fontSize: '12px', color: '#ff4d4f' }}>失败: {failedCalls}</Text>
+            <Progress
+              percent={successRate}
+              size="small"
+              strokeColor="#52c41a"
+              format={(percent) => `${percent?.toFixed(1)}%`}
+            />
+          </Space>
+        );
+      },
+    },
+    {
+      title: '开始时间',
+      dataIndex: 'start_time',
+      key: 'start_time',
+      width: 150,
+      render: (timestamp: number) => (
+        <Space direction="vertical" size={0}>
+          <Text style={{ fontSize: '12px' }}>
+            {new Date(timestamp).toLocaleTimeString()}
+          </Text>
+          <Text type="secondary" style={{ fontSize: '12px' }}>
+            已运行: {formatDuration(timestamp)}
+          </Text>
+        </Space>
+      ),
+    },
+  ];
+
+  /**
+   * 展开行渲染函数
+   */
+  const expandedRowRender = (record: MachineInfo) => {
+    const tasks = runningTasksByMachine[record.id] || [];
+
+    if (tasks.length === 0) {
+      return (
+        <div style={{ padding: '16px', textAlign: 'center' }}>
+          <Text type="secondary">当前没有正在运行的任务</Text>
+        </div>
+      );
+    }
+
+    return (
+      <Table
+        columns={runningTaskColumns}
+        dataSource={tasks}
+        rowKey="id"
+        size="small"
+        pagination={false}
+        style={{ marginLeft: '48px' }}
+      />
+    );
+  };
+
+  /**
+   * 主表格列配置
    */
   const columns: ColumnsType<MachineInfo> = [
     {
@@ -140,9 +275,7 @@ const Machines: React.FC = () => {
       title: '地址',
       key: 'address',
       width: 180,
-      render: (_: any, record) => (
-        <Text code>{`${record.ipAddress}:${record.apiPort}`}</Text>
-      ),
+      render: (_: any, record) => <Text code>{`${record.ipAddress}:${record.apiPort}`}</Text>,
     },
     {
       title: '状态',
@@ -185,15 +318,24 @@ const Machines: React.FC = () => {
     },
     {
       title: '运行任务',
-      dataIndex: 'runningTasks',
       key: 'runningTasks',
       width: 100,
-      render: (count: number) => (
-        <Text strong style={{ color: count > 0 ? '#1890ff' : undefined }}>
-          {count}
-        </Text>
-      ),
-      sorter: (a, b) => a.runningTasks - b.runningTasks,
+      render: (_: any, record: MachineInfo) => {
+        const actualCount = (runningTasksByMachine[record.id] || []).length;
+        return (
+          <Space>
+            <PlayCircleOutlined style={{ color: actualCount > 0 ? '#1890ff' : undefined }} />
+            <Text strong style={{ color: actualCount > 0 ? '#1890ff' : undefined }}>
+              {actualCount}
+            </Text>
+          </Space>
+        );
+      },
+      sorter: (a, b) => {
+        const countA = (runningTasksByMachine[a.id] || []).length;
+        const countB = (runningTasksByMachine[b.id] || []).length;
+        return countA - countB;
+      },
     },
     {
       title: '总任务数',
@@ -208,9 +350,7 @@ const Machines: React.FC = () => {
       dataIndex: 'sippVersion',
       key: 'sippVersion',
       width: 120,
-      render: (version?: string) => (
-        <Text type="secondary">{version || '-'}</Text>
-      ),
+      render: (version?: string) => <Text type="secondary">{version || '-'}</Text>,
     },
     {
       title: '最后心跳',
@@ -247,18 +387,23 @@ const Machines: React.FC = () => {
    * 统计数据
    */
   const statistics = React.useMemo(() => {
-    const online = machines.filter(m => m.status === 'online').length;
-    const offline = machines.filter(m => m.status === 'offline').length;
-    const totalRunningTasks = machines.reduce((sum, m) => sum + m.runningTasks, 0);
-    const avgCpu = machines.length > 0
-      ? machines.reduce((sum, m) => sum + (m.cpuUsage || 0), 0) / machines.length
-      : 0;
-    const avgMemory = machines.length > 0
-      ? machines.reduce((sum, m) => sum + (m.memoryUsage || 0), 0) / machines.length
-      : 0;
+    const online = machines.filter((m) => m.status === 'online').length;
+    const offline = machines.filter((m) => m.status === 'offline').length;
+    const totalRunningTasks = Object.values(runningTasksByMachine).reduce(
+      (sum, tasks) => sum + tasks.length,
+      0
+    );
+    const avgCpu =
+      machines.length > 0
+        ? machines.reduce((sum, m) => sum + (m.cpuUsage || 0), 0) / machines.length
+        : 0;
+    const avgMemory =
+      machines.length > 0
+        ? machines.reduce((sum, m) => sum + (m.memoryUsage || 0), 0) / machines.length
+        : 0;
 
     return { online, offline, totalRunningTasks, avgCpu, avgMemory };
-  }, [machines]);
+  }, [machines, runningTasksByMachine]);
 
   /**
    * 初始化加载
@@ -280,11 +425,7 @@ const Machines: React.FC = () => {
       <Row gutter={16} style={{ marginBottom: '16px' }}>
         <Col span={6}>
           <Card>
-            <Statistic
-              title="总节点数"
-              value={machines.length}
-              prefix={<ApiOutlined />}
-            />
+            <Statistic title="总节点数" value={machines.length} prefix={<ApiOutlined />} />
           </Card>
         </Col>
         <Col span={6}>
@@ -303,6 +444,7 @@ const Machines: React.FC = () => {
               title="运行任务"
               value={statistics.totalRunningTasks}
               valueStyle={{ color: '#1890ff' }}
+              prefix={<PlayCircleOutlined />}
             />
           </Card>
         </Col>
@@ -317,16 +459,16 @@ const Machines: React.FC = () => {
         </Col>
       </Row>
 
-      {/* 从机列表 */}
+      {/* 机器列表（包括主机和从机） */}
       <Card
-        title="从机列表"
+        title={
+          <Space>
+            <ApiOutlined />
+            <span>节点列表（主机 + 从机）</span>
+          </Space>
+        }
         extra={
-          <Button
-            type="primary"
-            icon={<ReloadOutlined />}
-            onClick={loadMachines}
-            loading={loading}
-          >
+          <Button type="primary" icon={<ReloadOutlined />} onClick={loadMachines} loading={loading}>
             刷新
           </Button>
         }
@@ -337,6 +479,10 @@ const Machines: React.FC = () => {
           rowKey="id"
           loading={loading}
           scroll={{ x: 1400 }}
+          expandable={{
+            expandedRowRender,
+            rowExpandable: (record) => (runningTasksByMachine[record.id] || []).length > 0,
+          }}
           pagination={{
             showSizeChanger: true,
             showTotal: (total) => `共 ${total} 台机器`,
