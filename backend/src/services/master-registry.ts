@@ -229,12 +229,13 @@ export class MasterRegistryService {
    */
   private getSippVersion(): string {
     try {
-      const output = execSync('sipp -v 2>&1', {
+      const output = execSync('sipp -v', {
         encoding: 'utf-8',
         timeout: 3000,
       });
       // 匹配格式: "SIPp v3.7.5-20-g66074c1-TLS-PCAP-SHA256"
       const match = output.match(/SIPp\s+v(\S+)/i);
+
       if (match) {
         // 移除末尾的点号（如果有）
         return match[1].replace(/\.$/, '');
