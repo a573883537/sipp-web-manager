@@ -19,6 +19,7 @@ export class MasterRegistryService {
   private readonly machineId = config.node.machineId;
   private readonly interval = 10000; // 10秒更新一次
   private sippVersionCache: string | null = null; // 缓存SIPp版本
+  private lastCpuTimes: { idle: number; total: number } | null = null; // 上次CPU时间采样
 
   /**
    * 启动主机注册服务
@@ -190,19 +191,34 @@ export class MasterRegistryService {
     const totalMem = os.totalmem();
     const freeMem = os.freemem();
 
-    // CPU 使用率（简化计算：1 - idle/total）
-    const cpuUsage = cpus.reduce((acc, cpu) => {
-      const total = Object.values(cpu.times).reduce((a, b) => a + b, 0);
-      const idle = cpu.times.idle;
-      return acc + (1 - idle / total) * 100;
-    }, 0) / cpus.length;
+    // CPU 使用率计算（需要两次采样的差值）
+    let cpuUsage = 0;
+    
+    // 计算当前 CPU 时间
+    const currentIdle = cpus.reduce((acc, cpu) => acc + cpu.times.idle, 0);
+    const currentTotal = cpus.reduce((acc, cpu) => {
+      return acc + Object.values(cpu.times).reduce((a, b) => a + b, 0);
+    }, 0);
+
+    if (this.lastCpuTimes) {
+      // 有上次采样数据，计算使用率
+      const idleDiff = currentIdle - this.lastCpuTimes.idle;
+      const totalDiff = currentTotal - this.lastCpuTimes.total;
+      
+      if (totalDiff > 0) {
+        cpuUsage = ((totalDiff - idleDiff) / totalDiff) * 100;
+      }
+    }
+
+    // 保存当前采样供下次使用
+    this.lastCpuTimes = { idle: currentIdle, total: currentTotal };
 
     // 内存使用率
     const memoryUsage = ((totalMem - freeMem) / totalMem) * 100;
 
     return {
-      cpu: Math.round(cpuUsage * 100) / 100,
-      memory: Math.round(memoryUsage * 100) / 100,
+      cpu: Math.max(0, Math.min(100, Math.round(cpuUsage * 100) / 100)),
+      memory: Math.max(0, Math.min(100, Math.round(memoryUsage * 100) / 100)),
     };
   }
 

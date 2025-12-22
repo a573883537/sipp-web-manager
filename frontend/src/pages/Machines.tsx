@@ -543,13 +543,18 @@ const Machines: React.FC = () => {
       (sum, tasks) => sum + tasks.length,
       0
     );
+    
+    // 只计算有有效 CPU/内存数据的机器
+    const machinesWithCpu = machines.filter((m) => typeof m.cpuUsage === 'number' && !isNaN(m.cpuUsage));
+    const machinesWithMemory = machines.filter((m) => typeof m.memoryUsage === 'number' && !isNaN(m.memoryUsage));
+    
     const avgCpu =
-      machines.length > 0
-        ? machines.reduce((sum, m) => sum + (m.cpuUsage || 0), 0) / machines.length
+      machinesWithCpu.length > 0
+        ? machinesWithCpu.reduce((sum, m) => sum + m.cpuUsage!, 0) / machinesWithCpu.length
         : 0;
     const avgMemory =
-      machines.length > 0
-        ? machines.reduce((sum, m) => sum + (m.memoryUsage || 0), 0) / machines.length
+      machinesWithMemory.length > 0
+        ? machinesWithMemory.reduce((sum, m) => sum + m.memoryUsage!, 0) / machinesWithMemory.length
         : 0;
 
     return { online, offline, totalRunningTasks, avgCpu, avgMemory };
@@ -688,8 +693,7 @@ const Machines: React.FC = () => {
           <Card>
             <Statistic
               title="平均负载"
-              value={`${statistics.avgCpu.toFixed(1)}% / ${statistics.avgMemory.toFixed(1)}%`}
-              prefix="CPU/MEM"
+              value={`CPU ${isNaN(statistics.avgCpu) ? '0.0' : statistics.avgCpu.toFixed(1)}% / MEM ${isNaN(statistics.avgMemory) ? '0.0' : statistics.avgMemory.toFixed(1)}%`}
             />
           </Card>
         </Col>
