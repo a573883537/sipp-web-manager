@@ -404,12 +404,39 @@ process.on('SIGINT', () => app.shutdown());
 // 处理未捕获的异常
 process.on('uncaughtException', (error) => {
   logger.error('Uncaught exception:', error);
-  app.shutdown();
+  // 仅在严重错误时关闭服务
+  if (error.message?.includes('EADDRINUSE') || error.message?.includes('Cannot find module')) {
+    logger.error('Fatal error detected, shutting down...');
+    app.shutdown();
+  } else {
+    logger.warn('Non-fatal uncaught exception, continuing service...');
+  }
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-  logger.error('Unhandled rejection at:', promise, 'reason:', reason);
-  app.shutdown();
+  // 记录详细的拒绝信息
+  const errorMsg = reason instanceof Error ? reason.message : String(reason);
+  const errorStack = reason instanceof Error ? reason.stack : undefined;
+
+  logger.error('Unhandled rejection detected:', {
+    reason: errorMsg,
+    stack: errorStack,
+    promise: promise?.toString(),
+  });
+
+  // 不要因为远程调用失败等非致命错误而关闭服务
+  // 仅在数据库连接失败等致命错误时关闭
+  if (errorMsg?.includes('ECONNREFUSED') ||
+      errorMsg?.includes('ECONNRESET') ||
+      errorMsg?.includes('ETIMEDOUT') ||
+      errorMsg?.includes('AxiosError')) {
+    logger.warn('Non-fatal network error in unhandled rejection, service continues...');
+  } else if (errorMsg?.includes('database') || errorMsg?.includes('ENOTFOUND')) {
+    logger.error('Fatal error detected, shutting down...');
+    app.shutdown();
+  } else {
+    logger.warn('Non-fatal unhandled rejection, service continues...');
+  }
 });
 
 export default app;

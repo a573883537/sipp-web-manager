@@ -597,7 +597,21 @@ export class SippProcessManager extends EventEmitter {
       throw new Error(`Task ${taskId} not found`);
     }
 
-    switch (command) {
+    // 单字符命令映射（SIPp 原生控制命令）
+    const commandMap: Record<string, string> = {
+      'p': 'pause',          // 暂停/恢复
+      'q': 'quit',           // 优雅退出
+      'Q': 'forceQuit',      // 强制退出
+      '+': 'increaseRate',   // 增加速率
+      '-': 'decreaseRate',   // 减少速率
+      's': 'dumpScreen',     // 屏幕截图
+      'a': 'increaseRate',   // 调整速率（映射为增速）
+    };
+
+    // 标准化命令：单字符 → 完整命令名
+    const normalizedCommand = commandMap[command] || command;
+
+    switch (normalizedCommand) {
       case 'setRate':
         await processInstance.setRate(args.rate);
         break;
