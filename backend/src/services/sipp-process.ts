@@ -412,6 +412,10 @@ class SippProcessInstance extends EventEmitter {
         logger.info('SIPp process exited', { taskId: this.taskId, code, signal });
         this.isRunning = false;
         this.process = null;
+
+        // 清理临时证书目录
+        this.cleanupTempCertificates();
+
         this.emit('exit', { code, signal, taskId: this.taskId });
       });
 
@@ -420,6 +424,10 @@ class SippProcessInstance extends EventEmitter {
         logger.error('SIPp process error:', { taskId: this.taskId, error });
         this.isRunning = false;
         this.process = null;
+
+        // 清理临时证书目录
+        this.cleanupTempCertificates();
+
         this.emit('error', { error, taskId: this.taskId });
       });
 
@@ -509,6 +517,27 @@ class SippProcessInstance extends EventEmitter {
 
   private sleep(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  /**
+   * 清理任务的临时证书目录
+   */
+  private cleanupTempCertificates(): void {
+    try {
+      const tempCertDir = path.resolve(config.sipp.logDir, this.taskId);
+      if (fs.existsSync(tempCertDir) && fs.statSync(tempCertDir).isDirectory()) {
+        fs.rmSync(tempCertDir, { recursive: true, force: true });
+        logger.info('Cleaned up temporary certificate directory', {
+          taskId: this.taskId,
+          dir: tempCertDir,
+        });
+      }
+    } catch (error: any) {
+      logger.warn('Failed to cleanup temporary certificate directory', {
+        taskId: this.taskId,
+        error: error.message || String(error),
+      });
+    }
   }
 }
 

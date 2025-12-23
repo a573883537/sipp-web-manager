@@ -487,9 +487,16 @@ export class WebSocketService {
     const logDir = config.sipp.logDir;
     const machineId = config.node.machineId;
 
-    // 查找所有与该任务相关的日志文件
+    // 查找所有与该任务相关的日志文件（只包含文件，不包含目录）
     const files = fs.readdirSync(logDir);
-    const taskLogFiles = files.filter(f => f.includes(taskId));
+    const taskLogFiles = files.filter(f => {
+      const filePath = path.join(logDir, f);
+      try {
+        return f.includes(taskId) && fs.statSync(filePath).isFile();
+      } catch (error) {
+        return false;
+      }
+    });
 
     if (taskLogFiles.length === 0) {
       logger.warn(`No log files found for task ${taskId}, skipping upload`);
@@ -533,12 +540,14 @@ export class WebSocketService {
 
       logger.info(`Successfully uploaded ${taskLogFiles.length} log files for task ${taskId}`);
 
-      // 上传成功后删除本地日志文件
+      // 上传成功后删除本地日志文件（只删除文件，不删除目录）
       for (const file of taskLogFiles) {
         try {
           const filePath = path.join(logDir, file);
-          fs.unlinkSync(filePath);
-          logger.debug(`Deleted local log file: ${file}`);
+          if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+            fs.unlinkSync(filePath);
+            logger.debug(`Deleted local log file: ${file}`);
+          }
         } catch (err: any) {
           logger.warn(`Failed to delete local log file ${file}: ${err.message || String(err)}`);
         }
