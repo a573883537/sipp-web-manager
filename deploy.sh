@@ -72,35 +72,48 @@ for cmd in node npm sipp; do
     fi
 done
 
-# 检查 MySQL（支持本地安装和 Docker 容器）
+# 检查 MySQL（主机和从机检查逻辑不同）
 MYSQL_CMD=""
-if command -v mysql &> /dev/null; then
-    MYSQL_CMD="mysql"
-    print_success "检测到本地 MySQL"
-elif command -v docker &> /dev/null; then
-    # 尝试检测常见的 MySQL Docker 容器
-    for container in mysql mysql-server sipp-mysql db; do
-        if docker ps --format '{{.Names}}' 2>/dev/null | grep -qw "$container"; then
-            if docker exec "$container" mysql --version &>/dev/null; then
-                MYSQL_CMD="docker exec -i $container mysql"
-                print_success "检测到 Docker MySQL 容器: $container"
-                break
+
+if [[ "$NODE_ROLE" == "master" ]]; then
+    # 主机：检查本地 MySQL 或 Docker 容器
+    if command -v mysql &> /dev/null; then
+        MYSQL_CMD="mysql"
+        print_success "检测到本地 MySQL"
+    elif command -v docker &> /dev/null; then
+        # 尝试检测常见的 MySQL Docker 容器
+        for container in mysql mysql-server sipp-mysql db; do
+            if docker ps --format '{{.Names}}' 2>/dev/null | grep -qw "$container"; then
+                if docker exec "$container" mysql --version &>/dev/null; then
+                    MYSQL_CMD="docker exec -i $container mysql"
+                    print_success "检测到 Docker MySQL 容器: $container"
+                    break
+                fi
+            fi
+        done
+
+        if [[ -z "$MYSQL_CMD" ]]; then
+            print_warning "未检测到 MySQL（本地或 Docker）"
+            print_warning "如果使用 Docker，请确保容器名为: mysql, mysql-server, sipp-mysql 或 db"
+            read -p "是否继续部署？(y/N) " -n 1 -r
+            echo
+            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                exit 1
             fi
         fi
-    done
-
-    if [[ -z "$MYSQL_CMD" ]] && [[ "$NODE_ROLE" == "master" ]]; then
-        print_warning "未检测到 MySQL（本地或 Docker）"
-        print_warning "如果使用 Docker，请确保容器名为: mysql, mysql-server, sipp-mysql 或 db"
-        read -p "是否继续部署？(y/N) " -n 1 -r
-        echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            exit 1
-        fi
+    else
+        print_error "未检测到 MySQL（需要本地安装或 Docker）"
+        exit 1
     fi
 else
-    if [[ "$NODE_ROLE" == "master" ]]; then
-        print_error "未检测到 MySQL（需要本地安装或 Docker）"
+    # 从机：仅检查 mysql 客户端是否存在（用于连接主机 MySQL）
+    if command -v mysql &> /dev/null; then
+        print_success "检测到 MySQL 客户端（用于连接主机数据库）"
+    else
+        print_error "缺少 MySQL 客户端，从机需要 mysql 命令连接主机数据库"
+        print_warning "安装方法："
+        echo "  Ubuntu/Debian: sudo apt-get install mysql-client"
+        echo "  CentOS/RHEL:   sudo yum install mysql"
         exit 1
     fi
 fi
@@ -112,7 +125,7 @@ print_success "系统环境检查通过"
 # ============================================
 print_step "安装后端依赖..."
 cd backend
-npm install --production
+npm install
 print_success "后端依赖安装完成"
 
 if [[ "$NODE_ROLE" == "master" ]]; then
@@ -205,6 +218,39 @@ EOF
 
 else
     # 从机配置
+    print_step "配置从机数据库连接..."
+
+    # 读取数据库配置（优先环境变量，否则使用默认值 = 主机地址）
+    DB_HOST=${DB_HOST:-$MASTER_IP}
+    DB_PORT=${DB_PORT:-3306}
+    DB_USER=${DB_USER:-root}
+    DB_PASSWORD=${DB_PASSWORD:-}
+    DB_NAME=${DB_NAME:-sipp_manager}
+
+    # 测试主机数据库连接
+    print_step "测试主机数据库连接: $DB_HOST:$DB_PORT"
+    if mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASSWORD" -e "SELECT 1;" &>/dev/null; then
+        print_success "主机数据库连接成功"
+    else
+        print_error "无法连接到主机数据库 ($DB_HOST:$DB_PORT)"
+        print_warning "请确保："
+        echo "  1. 主机 MySQL 服务已启动"
+        echo "  2. MySQL 已开启远程访问（bind-address = 0.0.0.0）"
+        echo "  3. 防火墙已开放 3306 端口"
+        echo "  4. 数据库用户有远程访问权限"
+        echo ""
+        echo "创建远程用户的命令（在主机上执行）："
+        echo "  mysql -e \"CREATE USER '$DB_USER'@'%' IDENTIFIED BY '$DB_PASSWORD';\""
+        echo "  mysql -e \"GRANT ALL PRIVILEGES ON $DB_NAME.* TO '$DB_USER'@'%';\""
+        echo "  mysql -e \"FLUSH PRIVILEGES;\""
+        echo ""
+        read -p "是否继续部署？(y/N) " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            exit 1
+        fi
+    fi
+
     cat > backend/.env << EOF
 # SIPp Web Manager - 从机配置
 # 生成时间: $(date '+%Y-%m-%d %H:%M:%S')
@@ -220,6 +266,14 @@ PORT=3000
 # 主机信息
 MASTER_HOST=${MASTER_IP}
 MASTER_PORT=3000
+
+# 数据库配置（连接主机数据库）
+DB_HOST=${DB_HOST}
+DB_PORT=${DB_PORT}
+DB_NAME=${DB_NAME}
+DB_USER=${DB_USER}
+DB_PASSWORD=${DB_PASSWORD}
+DB_POOL_SIZE=5
 
 # 日志级别
 LOG_LEVEL=info
@@ -331,13 +385,15 @@ else
     echo "📡 连接信息："
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo "  主机地址: ${MASTER_IP}:3000"
+    echo "  数据库:   ${DB_HOST}:${DB_PORT}"
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo "⚠️  注意事项："
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo "  1. 从机启动后会自动向主机注册"
     echo "  2. 请确保主机服务已运行"
-    echo "  3. 确保网络可达（端口 3000）"
+    echo "  3. 确保网络可达（端口 3000 和 3306）"
+    echo "  4. 确保主机 MySQL 允许远程连接"
     echo ""
 fi
 
