@@ -10,6 +10,7 @@ import { injectionFileService } from '../services/injection-file-service';
 import { taskHistoryRepository } from '../database/task-history-repository';
 import { configTemplateRepository } from '../database/config-template-repository';
 import { slaveManager } from '../services/slave-manager';
+import { tlsCertificateRepository } from '../database/tls-certificate-repository';
 import fs from 'fs/promises';
 import * as fsSync from 'fs';
 import path from 'path';
@@ -2119,6 +2120,153 @@ apiRouter.post('/machines/sipp/stop', async (req: Request, res: Response): Promi
     res.status(error.response?.status || 500).json({
       success: false,
       error: errorMsg,
+    });
+  }
+});
+
+// ============================================
+// TLS 证书管理 API
+// ============================================
+
+/**
+ * 获取证书列表（不含内容）
+ */
+apiRouter.get('/tls-certs', async (_req: Request, res: Response) => {
+  try {
+    const certs = await tlsCertificateRepository.findAll();
+    res.json({
+      success: true,
+      certificates: certs,
+    });
+  } catch (error: any) {
+    logger.error('Failed to list TLS certificates', { error: error.message });
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+/**
+ * 获取证书详情（含内容）
+ */
+apiRouter.get('/tls-certs/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const cert = await tlsCertificateRepository.findById(id);
+    res.json({
+      success: true,
+      certificate: cert,
+    });
+  } catch (error: any) {
+    logger.error(`Failed to get TLS certificate ${req.params.id}`, { error: error.message });
+    res.status(404).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+/**
+ * 创建证书
+ */
+apiRouter.post('/tls-certs', async (req: Request, res: Response) => {
+  try {
+    const { name, description, cert_content, key_content } = req.body;
+
+    // 验证必填字段
+    if (!name || !cert_content || !key_content) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields: name, cert_content, key_content',
+      });
+    }
+
+    // 检查名称是否已存在
+    const existing = await tlsCertificateRepository.findByName(name);
+    if (existing) {
+      return res.status(409).json({
+        success: false,
+        error: `Certificate name already exists: ${name}`,
+      });
+    }
+
+    const cert = await tlsCertificateRepository.create({
+      name,
+      description,
+      cert_content,
+      key_content,
+    });
+
+    return res.status(201).json({
+      success: true,
+      certificate: cert,
+    });
+  } catch (error: any) {
+    logger.error('Failed to create TLS certificate', { error: error.message });
+    return res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+/**
+ * 更新证书
+ */
+apiRouter.put('/tls-certs/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { name, description, cert_content, key_content } = req.body;
+
+    // 如果更新名称，检查是否与其他证书重名
+    if (name) {
+      const existing = await tlsCertificateRepository.findByName(name);
+      if (existing && existing.id !== id) {
+        return res.status(409).json({
+          success: false,
+          error: `Certificate name already exists: ${name}`,
+        });
+      }
+    }
+
+    await tlsCertificateRepository.update(id, {
+      name,
+      description,
+      cert_content,
+      key_content,
+    });
+
+    const updated = await tlsCertificateRepository.findById(id);
+    return res.json({
+      success: true,
+      certificate: updated,
+    });
+  } catch (error: any) {
+    logger.error(`Failed to update TLS certificate ${req.params.id}`, { error: error.message });
+    return res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+/**
+ * 删除证书
+ */
+apiRouter.delete('/tls-certs/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    await tlsCertificateRepository.delete(id);
+    res.json({
+      success: true,
+      message: 'Certificate deleted successfully',
+    });
+  } catch (error: any) {
+    logger.error(`Failed to delete TLS certificate ${req.params.id}`, { error: error.message });
+    res.status(500).json({
+      success: false,
+      error: error.message,
     });
   }
 });

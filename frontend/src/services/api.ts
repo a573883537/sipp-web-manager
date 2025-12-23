@@ -496,6 +496,58 @@ class ApiService {
   async deleteMachine(machineId: string): Promise<ApiResponse> {
     return this.client.delete(`/machines/${machineId}`);
   }
+
+  // ============================================
+  // TLS 证书管理
+  // ============================================
+
+  /**
+   * 获取证书列表（不含内容）
+   */
+  async getTLSCertificates(): Promise<ApiResponse<{ certificates: any[] }>> {
+    return this.client.get('/tls-certs');
+  }
+
+  /**
+   * 获取证书详情（含内容）
+   */
+  async getTLSCertificate(id: string): Promise<ApiResponse<{ certificate: any }>> {
+    return this.client.get(`/tls-certs/${id}`);
+  }
+
+  /**
+   * 创建证书
+   */
+  async createTLSCertificate(data: {
+    name: string;
+    description?: string;
+    cert_content: string;
+    key_content: string;
+  }): Promise<ApiResponse<{ certificate: any }>> {
+    return this.client.post('/tls-certs', data);
+  }
+
+  /**
+   * 更新证书
+   */
+  async updateTLSCertificate(
+    id: string,
+    data: {
+      name?: string;
+      description?: string;
+      cert_content?: string;
+      key_content?: string;
+    }
+  ): Promise<ApiResponse<{ certificate: any }>> {
+    return this.client.put(`/tls-certs/${id}`, data);
+  }
+
+  /**
+   * 删除证书
+   */
+  async deleteTLSCertificate(id: string): Promise<ApiResponse> {
+    return this.client.delete(`/tls-certs/${id}`);
+  }
 }
 
 // 单例导出

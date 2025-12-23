@@ -323,6 +323,7 @@ export interface TestTask {
     autoAnswer?: boolean;
     regScenarioFile?: string; // 注册场景文件
     regMaxCalls?: number; // 注册呼叫最大数量
+    certId?: string; // TLS 证书ID
   };
   stats?: {
     totalCalls: number;
@@ -350,4 +351,27 @@ export interface MachineInfo {
   lastHeartbeat: number;
   createdAt?: string;
   updatedAt?: string;
+}
+
+/**
+ * TLS 证书信息
+ */
+export interface TlsCertificate {
+  id: string;
+  name: string;
+  description?: string;
+  cert_content?: string;  // 仅在详情接口返回
+  key_content?: string;   // 仅在详情接口返回
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * TLS 证书创建/更新数据
+ */
+export interface TlsCertificateForm {
+  name: string;
+  description?: string;
+  cert_content: string;
+  key_content: string;
 }

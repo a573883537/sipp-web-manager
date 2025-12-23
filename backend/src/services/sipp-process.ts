@@ -6,6 +6,7 @@ import fs from 'fs';
 import { logger } from '../utils/logger';
 import { config } from '../config';
 import { injectionFileService } from './injection-file-service';
+import { tlsCertificateRepository } from '../database/tls-certificate-repository';
 
 /**
  * 单个 SIPp 进程实例
@@ -274,6 +275,75 @@ class SippProcessInstance extends EventEmitter {
         taskId: this.taskId,
         regMaxCalls: options.regMaxCalls,
       });
+    }
+
+    // 添加 TLS 证书配置
+    if (sippTransport === 'l1') {
+      let tlsCertPath: string;
+      let tlsKeyPath: string;
+
+      // 优先级：certId（数据库） > tlsCert/tlsKey（直接路径） > 默认路径
+      if (options.certId) {
+        // 从数据库读取证书并写入临时文件
+        try {
+          const cert = await tlsCertificateRepository.findById(options.certId);
+          const tempCertDir = path.resolve(config.sipp.logDir, this.taskId);
+
+          // 确保临时目录存在
+          if (!fs.existsSync(tempCertDir)) {
+            fs.mkdirSync(tempCertDir, { recursive: true });
+          }
+
+          // 写入临时证书文件
+          tlsCertPath = path.join(tempCertDir, 'tls.crt');
+          tlsKeyPath = path.join(tempCertDir, 'tls.key');
+
+          fs.writeFileSync(tlsCertPath, cert.cert_content, { mode: 0o644 });
+          fs.writeFileSync(tlsKeyPath, cert.key_content, { mode: 0o600 });
+
+          logger.info('Using TLS certificate from database', {
+            taskId: this.taskId,
+            certId: options.certId,
+            certName: cert.name,
+          });
+        } catch (error: any) {
+          logger.error('Failed to load TLS certificate from database', {
+            taskId: this.taskId,
+            certId: options.certId,
+            error: error.message,
+          });
+          throw new Error(`Failed to load certificate: ${error.message}`);
+        }
+      } else if (options.tlsCert && options.tlsKey) {
+        // 使用直接指定的证书路径
+        tlsCertPath = options.tlsCert;
+        tlsKeyPath = options.tlsKey;
+      } else {
+        // 使用默认路径
+        tlsCertPath = path.resolve(__dirname, '../../certs/sipp.crt');
+        tlsKeyPath = path.resolve(__dirname, '../../certs/sipp.key');
+      }
+
+      // 验证证书文件存在
+      if (fs.existsSync(tlsCertPath)) {
+        args.push('-tls_cert', tlsCertPath);
+        logger.info('Using TLS certificate', { taskId: this.taskId, cert: tlsCertPath });
+      } else {
+        logger.warn('TLS certificate not found, SIPp may fail to start', {
+          taskId: this.taskId,
+          expectedPath: tlsCertPath,
+        });
+      }
+
+      if (fs.existsSync(tlsKeyPath)) {
+        args.push('-tls_key', tlsKeyPath);
+        logger.info('Using TLS private key', { taskId: this.taskId, key: tlsKeyPath });
+      } else {
+        logger.warn('TLS private key not found, SIPp may fail to start', {
+          taskId: this.taskId,
+          expectedPath: tlsKeyPath,
+        });
+      }
     }
 
     // 日志追踪选项（统一使用 taskId 前缀便于管理）
@@ -702,6 +772,10 @@ export interface SippStartOptions {
   // 注册场景支持（TLS连接复用）
   regScenarioFile?: string; // 注册场景文件（-regsf），TLS传输时先执行注册，主场景复用TLS连接
   regMaxCalls?: number;     // 注册呼叫最大数量（-regm），限制注册次数（默认无限制）
+  // TLS 证书配置
+  certId?: string;          // 证书ID（从数据库读取并写入临时文件）
+  tlsCert?: string;         // TLS 证书文件路径（-tls_cert），PEM格式
+  tlsKey?: string;          // TLS 私钥文件路径（-tls_key），PEM格式
   // 日志追踪选项
   traceMsg?: boolean;      // 追踪SIP消息 (-trace_msg)
   traceErr?: boolean;      // 追踪错误 (-trace_err)

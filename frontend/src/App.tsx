@@ -7,6 +7,7 @@ import Scenarios from '@/pages/Scenarios';
 import InjectionFiles from '@/pages/InjectionFiles';
 import TaskHistory from '@/pages/TaskHistory';
 import Machines from '@/pages/Machines';
+import TLSCertificates from '@/pages/TLSCertificates';
 import { useAppStore } from '@/stores/useAppStore';
 import { wsService } from '@/services/websocket';
 import { apiService } from '@/services/api';
@@ -139,6 +140,7 @@ const App: React.FC = () => {
               <Route path="injection-files" element={<InjectionFiles />} />
               <Route path="task-history" element={<TaskHistory />} />
               <Route path="machines" element={<Machines />} />
+              <Route path="tls-certificates" element={<TLSCertificates />} />
               <Route path="*" element={<Navigate to="/scenarios" replace />} />
             </Route>
           </Routes>

@@ -9,6 +9,7 @@ import {
   HistoryOutlined,
   GlobalOutlined,
   ClusterOutlined,
+  SafetyCertificateOutlined,
 } from '@ant-design/icons';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAppStore } from '@/stores/useAppStore';
@@ -97,6 +98,11 @@ const Layout: React.FC = () => {
       key: '/machines',
       icon: <ClusterOutlined />,
       label: '从机管理',
+    },
+    {
+      key: '/tls-certificates',
+      icon: <SafetyCertificateOutlined />,
+      label: 'TLS 证书',
     },
   ];
 

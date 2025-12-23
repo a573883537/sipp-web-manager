@@ -46,6 +46,9 @@ const Scenarios: React.FC = () => {
   // 注入文件列表
   const [injectionFiles, setInjectionFiles] = useState<any[]>([]);
 
+  // TLS 证书列表
+  const [certificates, setCertificates] = useState<any[]>([]);
+
   // 机器列表
   const [machines, setMachines] = useState<MachineInfo[]>([]);
   const [machinesLoading, setMachinesLoading] = useState(false);
@@ -215,6 +218,7 @@ const Scenarios: React.FC = () => {
     loadScenarios();
     loadTemplates();
     loadInjectionFiles();
+    loadCertificates();
   }, []);
 
   /**
@@ -228,6 +232,20 @@ const Scenarios: React.FC = () => {
       }
     } catch (error) {
       console.error('Failed to load injection files:', error);
+    }
+  };
+
+  /**
+   * 加载 TLS 证书列表
+   */
+  const loadCertificates = async () => {
+    try {
+      const response = await apiService.getTLSCertificates();
+      if (response.success && response.certificates) {
+        setCertificates(response.certificates);
+      }
+    } catch (error) {
+      console.error('Failed to load TLS certificates:', error);
     }
   };
 
@@ -591,6 +609,7 @@ const Scenarios: React.FC = () => {
           autoAnswer: values.autoAnswer,
           regScenarioFile: values.regScenarioFile,
           regMaxCalls: values.regMaxCalls,
+          certId: values.certId,
         },
       };
 
@@ -900,6 +919,35 @@ const Scenarios: React.FC = () => {
                         </Select>
                       </Form.Item>
                     </Space>
+
+                    <Form.Item
+                      noStyle
+                      shouldUpdate={(prevValues, currentValues) => prevValues.transport !== currentValues.transport}
+                    >
+                      {({ getFieldValue }) => {
+                        const transport = getFieldValue('transport');
+                        return transport === 'tls' ? (
+                          <Form.Item
+                            name="certId"
+                            label="TLS 证书"
+                            tooltip="选择用于 TLS 连接的证书，如未选择则使用默认证书"
+                          >
+                            <Select placeholder="选择证书（可选）" allowClear showSearch optionFilterProp="children">
+                              {certificates.map((cert: any) => (
+                                <Select.Option key={cert.id} value={cert.id}>
+                                  {cert.name}
+                                  {cert.description && (
+                                    <span style={{ color: '#999', marginLeft: 8, fontSize: '12px' }}>
+                                      {cert.description}
+                                    </span>
+                                  )}
+                                </Select.Option>
+                              ))}
+                            </Select>
+                          </Form.Item>
+                        ) : null;
+                      }}
+                    </Form.Item>
 
                     <Form.Item
                       name="injectionFile"
