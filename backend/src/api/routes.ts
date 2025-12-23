@@ -116,6 +116,7 @@ apiRouter.post('/sipp/start', async (req: Request, res: Response): Promise<void>
       scenarioContent, // 新增：场景文件内容（从主机推送）
       injectionContent, // 新增：注入文件内容（从主机推送）
       oocsfContent, // 新增：oocsf文件内容（从主机推送）
+      regScenarioContent, // 新增：注册场景文件内容（从主机推送）
       machineId, // 新增：指定从机ID，不指定则自动选择
       rate = 10,
       users = 100,
@@ -131,6 +132,10 @@ apiRouter.post('/sipp/start', async (req: Request, res: Response): Promise<void>
       enableRtpEcho,
       mediaIp,
       oocsf,
+      // TLS 相关选项
+      certId,
+      regScenarioFile,
+      regMaxCalls,
       // 日志追踪选项
       traceMsg,
       traceErr,
@@ -184,6 +189,13 @@ apiRouter.post('/sipp/start', async (req: Request, res: Response): Promise<void>
         await fs.writeFile(oocsfPath, oocsfContent, 'utf-8');
         logger.info(`OOCSF file saved from master: ${oocsfPath}`);
       }
+
+      if (regScenarioContent && regScenarioFile) {
+        const regScenarioPath = path.join(config.sipp.scenarioDir, regScenarioFile);
+        await fs.mkdir(path.dirname(regScenarioPath), { recursive: true });
+        await fs.writeFile(regScenarioPath, regScenarioContent, 'utf-8');
+        logger.info(`Registration scenario file saved from master: ${regScenarioPath}`);
+      }
     }
 
     const options = {
@@ -201,6 +213,11 @@ apiRouter.post('/sipp/start', async (req: Request, res: Response): Promise<void>
       enableRtpEcho,
       mediaIp,
       oocsf,
+      // TLS 相关选项
+      certId,
+      regScenarioFile,
+      regMaxCalls,
+      // 日志追踪选项
       traceMsg,
       traceErr,
       traceCalldebug,
@@ -208,6 +225,7 @@ apiRouter.post('/sipp/start', async (req: Request, res: Response): Promise<void>
       traceLogs,
       traceRtt,
       traceScreen,
+      // 其他高级选项
       localIp,
       bindLocal,
       rsa,

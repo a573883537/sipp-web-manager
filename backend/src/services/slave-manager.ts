@@ -126,6 +126,13 @@ export class SlaveManager {
         oocsfContent = await this.readFileIfExists(oocsfPath);
       }
 
+      // 读取注册场景文件内容（如果有）
+      let regScenarioContent: string | undefined;
+      if (options.regScenarioFile) {
+        const regScenarioPath = path.join(config.sipp.scenarioDir, options.regScenarioFile);
+        regScenarioContent = await this.readFileIfExists(regScenarioPath);
+      }
+
       const response = await axios.post(
         url,
         {
@@ -134,6 +141,7 @@ export class SlaveManager {
           scenarioContent, // 传递场景文件内容
           injectionContent, // 传递注入文件内容
           oocsfContent, // 传递 oocsf 文件内容
+          regScenarioContent, // 传递注册场景文件内容
           ...options,
         },
         {

@@ -145,8 +145,7 @@ const TLSCertificates: React.FC = () => {
   /**
    * 上传证书文件
    */
-  const handleUploadCert = (info: any) => {
-    const file = info.file;
+  const handleUploadCert = (file: File) => {
     const reader = new FileReader();
     reader.onload = (e) => {
       const content = e.target?.result as string;
@@ -160,8 +159,7 @@ const TLSCertificates: React.FC = () => {
   /**
    * 上传私钥文件
    */
-  const handleUploadKey = (info: any) => {
-    const file = info.file;
+  const handleUploadKey = (file: File) => {
     const reader = new FileReader();
     reader.onload = (e) => {
       const content = e.target?.result as string;
