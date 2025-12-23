@@ -588,8 +588,9 @@ apiRouter.post('/scenarios/xml', async (req: Request, res: Response): Promise<vo
       }
     } catch (parseError: any) {
       // 解析失败，使用默认值
-      parseWarning = `XML 解析警告: ${parseError.message}`;
-      logger.warn(`Failed to parse XML for ${normalizedFilename}, using defaults:`, parseError.message);
+      const errorMsg = parseError.message || String(parseError);
+      parseWarning = `XML 解析警告: ${errorMsg}`;
+      logger.warn(`Failed to parse XML for ${normalizedFilename}, using defaults: ${errorMsg}`);
 
       // 使用默认的场景结构
       scenario = {
@@ -617,7 +618,8 @@ apiRouter.post('/scenarios/xml', async (req: Request, res: Response): Promise<vo
     try {
       record = await scenarioRepository.upsert(normalizedFilename, scenario);
     } catch (dbError: any) {
-      logger.warn(`Failed to save scenario to database for ${normalizedFilename}:`, dbError.message);
+      const errorMsg = dbError.message || String(dbError);
+      logger.warn(`Failed to save scenario to database for ${normalizedFilename}: ${errorMsg}`);
       // 数据库保存失败不影响文件保存
     }
 
@@ -1063,7 +1065,10 @@ apiRouter.delete('/task-history/:id', async (req: Request, res: Response): Promi
         }
       } catch (remoteError: any) {
         // 从机删除失败不应阻止主机删除任务记录
-        logger.warn(`Failed to delete remote logs for task ${id}:`, remoteError.message);
+        const errorMsg = remoteError.response?.status === 404
+          ? 'Slave endpoint not found (old version or service not running)'
+          : (remoteError.message || String(remoteError));
+        logger.warn(`Failed to delete remote logs for task ${id}: ${errorMsg}`);
       }
     }
 

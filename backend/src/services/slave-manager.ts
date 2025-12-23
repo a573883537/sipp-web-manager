@@ -165,7 +165,7 @@ export class SlaveManager {
         return undefined;
       }
     } catch (error: any) {
-      logger.error(`Failed to read file ${filePath}:`, error.message);
+      logger.error(`Failed to read file ${filePath}: ${error.message || String(error)}`);
       return undefined;
     }
   }

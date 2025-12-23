@@ -208,13 +208,13 @@ class SippWebManagerApp {
           deletedCount++;
           logger.debug(`Deleted residual log file: ${file}`);
         } catch (err: any) {
-          logger.warn(`Failed to delete log file ${file}:`, err.message);
+          logger.warn(`Failed to delete log file ${file}: ${err.message || String(err)}`);
         }
       }
 
       logger.info(`Cleaned up ${deletedCount}/${taskLogFiles.length} residual log files`);
     } catch (error: any) {
-      logger.error('Failed to clean up residual logs:', error.message);
+      logger.error('Failed to clean up residual logs:', { error: error.message || String(error) });
     }
   }
 

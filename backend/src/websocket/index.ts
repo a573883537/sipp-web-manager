@@ -168,7 +168,7 @@ export class WebSocketService {
           try {
             await this.uploadLogsToMaster(taskId);
           } catch (err: any) {
-            logger.error(`Failed to upload logs for task ${taskId}:`, err);
+            logger.error(`Failed to upload logs for task ${taskId}: ${err.message || String(err)}`);
           }
         }
 
@@ -540,14 +540,14 @@ export class WebSocketService {
           fs.unlinkSync(filePath);
           logger.debug(`Deleted local log file: ${file}`);
         } catch (err: any) {
-          logger.warn(`Failed to delete local log file ${file}:`, err.message);
+          logger.warn(`Failed to delete local log file ${file}: ${err.message || String(err)}`);
         }
       }
 
       logger.info(`Cleaned up ${taskLogFiles.length} local log files for task ${taskId}`);
 
     } catch (error: any) {
-      logger.error(`Failed to upload logs for task ${taskId}:`, error.message);
+      logger.error(`Failed to upload logs for task ${taskId}: ${error.message || String(error)}`);
       throw error;
     }
   }

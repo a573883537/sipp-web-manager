@@ -253,6 +253,29 @@ class SippProcessInstance extends EventEmitter {
       args.push('-oocsf', oocsf);
     }
 
+    // 添加注册场景文件（TLS连接复用）
+    if (options.regScenarioFile) {
+      const regScenarioPath = path.resolve(config.sipp.scenarioDir, options.regScenarioFile);
+      if (!fs.existsSync(regScenarioPath)) {
+        throw new Error(`Registration scenario file not found: ${options.regScenarioFile}`);
+      }
+      // 仅使用文件名，相对于工作目录
+      args.push('-regsf', options.regScenarioFile);
+      logger.info('Using registration scenario for TLS connection sharing', {
+        taskId: this.taskId,
+        regScenarioFile: options.regScenarioFile,
+      });
+    }
+
+    // 添加注册呼叫最大数量限制
+    if (options.regMaxCalls !== undefined && options.regMaxCalls > 0) {
+      args.push('-regm', options.regMaxCalls.toString());
+      logger.info('Registration calls limited', {
+        taskId: this.taskId,
+        regMaxCalls: options.regMaxCalls,
+      });
+    }
+
     // 日志追踪选项（统一使用 taskId 前缀便于管理）
 	// 使用绝对路径确保 SIPp 可以正确写入日志
     const logPrefix = path.resolve(config.sipp.logDir, this.taskId);
@@ -676,6 +699,9 @@ export interface SippStartOptions {
   mediaIp?: string;        // 媒体IP地址（默认：本地IP）
   oocsf?: string;          // 会话外场景文件（Out Of Call Scenario File），用于处理 NOTIFY/OPTIONS 等
   autoAnswer?: boolean;    // 自动应答会话外消息 (-aa)，自动对 INFO/NOTIFY/OPTIONS/UPDATE 回复 200 OK
+  // 注册场景支持（TLS连接复用）
+  regScenarioFile?: string; // 注册场景文件（-regsf），TLS传输时先执行注册，主场景复用TLS连接
+  regMaxCalls?: number;     // 注册呼叫最大数量（-regm），限制注册次数（默认无限制）
   // 日志追踪选项
   traceMsg?: boolean;      // 追踪SIP消息 (-trace_msg)
   traceErr?: boolean;      // 追踪错误 (-trace_err)

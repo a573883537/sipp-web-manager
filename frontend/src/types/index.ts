@@ -221,6 +221,8 @@ export interface TestConfig {
   duration?: number;
   scenario?: string;
   injectionFile?: string; // 注入文件名（可选）
+  regScenarioFile?: string; // 注册场景文件（TLS连接复用）
+  regMaxCalls?: number; // 注册呼叫最大数量
 }
 
 /**
@@ -319,6 +321,8 @@ export interface TestTask {
     maxRtpPort?: number;
     oocsf?: string;
     autoAnswer?: boolean;
+    regScenarioFile?: string; // 注册场景文件
+    regMaxCalls?: number; // 注册呼叫最大数量
   };
   stats?: {
     totalCalls: number;

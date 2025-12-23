@@ -589,6 +589,8 @@ const Scenarios: React.FC = () => {
           maxRtpPort: values.maxRtpPort,
           oocsf: values.oocsf,
           autoAnswer: values.autoAnswer,
+          regScenarioFile: values.regScenarioFile,
+          regMaxCalls: values.regMaxCalls,
         },
       };
 
@@ -999,18 +1001,42 @@ const Scenarios: React.FC = () => {
                 label: <><ToolOutlined /> {t('startTest.advancedConfig')}</>,
                 forceRender: true,
                 children: (
-                  <Form.Item
-                    name="oocsf"
-                    label={t('startTest.oocsf')}
-                  >
-                    <Select placeholder={t('startTest.selectOocsf')} allowClear showSearch optionFilterProp="children">
-                      {scenarios.filter(s => s.filename !== selectedScenario?.filename).map(s => (
-                        <Select.Option key={s.filename} value={s.filename}>
-                          {s.name} ({s.filename})
-                        </Select.Option>
-                      ))}
-                    </Select>
-                  </Form.Item>
+                  <>
+                    <Form.Item
+                      name="oocsf"
+                      label={t('startTest.oocsf')}
+                    >
+                      <Select placeholder={t('startTest.selectOocsf')} allowClear showSearch optionFilterProp="children">
+                        {scenarios.filter(s => s.filename !== selectedScenario?.filename).map(s => (
+                          <Select.Option key={s.filename} value={s.filename}>
+                            {s.name} ({s.filename})
+                          </Select.Option>
+                        ))}
+                      </Select>
+                    </Form.Item>
+
+                    <Form.Item
+                      name="regScenarioFile"
+                      label="注册场景文件 (TLS连接复用)"
+                      tooltip="TLS传输时先执行注册场景，主场景复用TLS连接。适用于需要先注册再发起呼叫的场景。"
+                    >
+                      <Select placeholder="选择注册场景文件（可选）" allowClear showSearch optionFilterProp="children">
+                        {scenarios.filter(s => s.filename !== selectedScenario?.filename).map(s => (
+                          <Select.Option key={s.filename} value={s.filename}>
+                            {s.name} ({s.filename})
+                          </Select.Option>
+                        ))}
+                      </Select>
+                    </Form.Item>
+
+                    <Form.Item
+                      name="regMaxCalls"
+                      label="注册呼叫最大数量"
+                      tooltip="限制注册呼叫的次数，0或不填表示无限制"
+                    >
+                      <InputNumber min={0} max={1000000} placeholder="无限制" style={{ width: '100%' }} />
+                    </Form.Item>
+                  </>
                 ),
               },
               {
