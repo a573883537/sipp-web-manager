@@ -202,9 +202,62 @@ export class WebSocketService {
     });
 
     // 主动停止
-    sippProcessManager.on('stopped', (data) => {
+    sippProcessManager.on('stopped', async (data) => {
       const taskId = data.taskId;
       if (taskId) {
+        // 更新任务状态为 STOPPED 并归档到任务历史
+        try {
+          // 尝试读取CSV统计数据
+          let stats: any = undefined;
+          try {
+            const csvPath = path.join(config.sipp.logDir, `${taskId}_stats.csv`);
+            if (fs.existsSync(csvPath)) {
+              const parser = new CsvParser({ filePath: csvPath, watchMode: false });
+              const csvStats = await parser.getLatest();
+              if (csvStats) {
+                const successRate = csvStats.totalCalls > 0
+                  ? Math.round((csvStats.successCalls / csvStats.totalCalls) * 10000) / 100
+                  : 0;
+                stats = {
+                  totalCalls: csvStats.totalCalls,
+                  successCalls: csvStats.successCalls,
+                  failedCalls: csvStats.failedCalls,
+                  successRate,
+                };
+              }
+            }
+          } catch (csvErr: any) {
+            logger.warn('Failed to read CSV stats for stopped task', {
+              taskId,
+              error: csvErr.message,
+            });
+          }
+
+          // 更新数据库状态
+          await taskHistoryRepository.update(taskId, {
+            status: 'STOPPED',
+            stats,
+            end_time: Date.now(),
+          });
+
+          logger.info('Task status updated to STOPPED in database', { taskId, hasStats: !!stats });
+
+          // 从机模式：上传日志到主机并删除本地日志
+          if (config.node.role === 'slave') {
+            try {
+              await this.uploadLogsToMaster(taskId);
+            } catch (uploadErr: any) {
+              logger.error(`Failed to upload logs for stopped task ${taskId}: ${uploadErr.message || String(uploadErr)}`);
+            }
+          }
+        } catch (dbErr: any) {
+          logger.error('Failed to update stopped task status in database', {
+            taskId,
+            error: dbErr.message,
+          });
+        }
+
+        // 广播 WebSocket 消息
         this.broadcast('task:stopped', {
           taskId,
           timestamp: Date.now(),
