@@ -71,17 +71,24 @@ export interface UpdateTaskHistoryInput {
 export class TaskHistoryRepository {
   /**
    * 查询所有已完成的任务历史（不包括正在运行的）
+   * @param machineId 可选：按机器ID过滤（主机='master'，从机=具体机器ID）
    */
-  async findAll(): Promise<TaskHistoryRecord[]> {
+  async findAll(machineId?: string): Promise<TaskHistoryRecord[]> {
     try {
-      const rows = await query<TaskHistoryRecord>(
-        `SELECT * FROM task_history
-         WHERE status != 'RUNNING'
-         ORDER BY start_time DESC`
-      );
+      let sql = `SELECT * FROM task_history WHERE status != 'RUNNING'`;
+      const params: any[] = [];
+
+      if (machineId) {
+        sql += ` AND machine_id = ?`;
+        params.push(machineId);
+      }
+
+      sql += ` ORDER BY start_time DESC`;
+
+      const rows = await query<TaskHistoryRecord>(sql, params);
       return rows.map(this.parseJsonFields);
     } catch (error: any) {
-      logger.error('Failed to find all task history', { error: error.message });
+      logger.error('Failed to find all task history', { error: error.message, machineId });
       throw error;
     }
   }

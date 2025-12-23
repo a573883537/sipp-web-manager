@@ -925,10 +925,16 @@ apiRouter.post('/injection-files/validate', (req: Request, res: Response) => {
 
 /**
  * 获取所有任务历史（仅已完成的任务）
+ * 仅返回当前节点的任务（主机='master'，从机=当前machineId）
  */
 apiRouter.get('/task-history', async (_req: Request, res: Response): Promise<void> => {
   try {
-    const tasks = await taskHistoryRepository.findAll();
+    // 获取当前节点的 machine_id（主机固定为 'master'）
+    const currentMachineId = config.node.role === 'master' ? 'master' : config.node.machineId;
+
+    // 只查询当前节点的任务历史
+    const tasks = await taskHistoryRepository.findAll(currentMachineId);
+
     res.json({
       success: true,
       tasks,
