@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Layout as AntLayout, Menu, theme, Badge, Space, Typography, Dropdown } from 'antd';
+import { Layout as AntLayout, Menu, theme, Badge, Space, Typography } from 'antd';
 import {
   FileTextOutlined,
   MenuFoldOutlined,
@@ -7,14 +7,12 @@ import {
   WifiOutlined,
   DatabaseOutlined,
   HistoryOutlined,
-  GlobalOutlined,
   ClusterOutlined,
   SafetyCertificateOutlined,
 } from '@ant-design/icons';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAppStore } from '@/stores/useAppStore';
 import { wsService } from '@/services/websocket';
-import { useTranslation } from 'react-i18next';
 
 const { Header, Sider, Content } = AntLayout;
 const { Text } = Typography;
@@ -27,7 +25,6 @@ const Layout: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { sidebarCollapsed, toggleSidebar, connectionStatus, setConnectionStatus } = useAppStore();
-  const { t, i18n } = useTranslation();
 
   const {
     token: { colorBgContainer },
@@ -57,42 +54,23 @@ const Layout: React.FC = () => {
   }, []);
 
   /**
-   * 切换语言
-   */
-  const changeLanguage = (lang: string) => {
-    i18n.changeLanguage(lang);
-    localStorage.setItem('language', lang);
-  };
-
-  /**
-   * 语言菜单
-   */
-  const languageMenu = {
-    items: [
-      { key: 'zh-CN', label: '中文' },
-      { key: 'en-US', label: 'English' },
-    ],
-    onClick: ({ key }: { key: string }) => changeLanguage(key),
-  };
-
-  /**
    * 菜单项配置
    */
   const menuItems = [
     {
       key: '/scenarios',
       icon: <FileTextOutlined />,
-      label: t('menu.scenarios'),
+      label: '场景管理',
     },
     {
       key: '/injection-files',
       icon: <DatabaseOutlined />,
-      label: t('menu.injectionFiles'),
+      label: '注入文件',
     },
     {
       key: '/task-history',
       icon: <HistoryOutlined />,
-      label: t('menu.taskHistory'),
+      label: '任务历史',
     },
     {
       key: '/machines',
@@ -135,13 +113,13 @@ const Layout: React.FC = () => {
   const getConnectionText = () => {
     switch (connectionStatus) {
       case 'connected':
-        return t('connection.connected');
+        return '已连接';
       case 'connecting':
-        return t('connection.connecting');
+        return '连接中';
       case 'error':
-        return t('connection.error');
+        return '连接错误';
       default:
-        return t('connection.disconnected');
+        return '未连接';
     }
   };
 
@@ -180,9 +158,6 @@ const Layout: React.FC = () => {
           <Space size="middle">
             <Badge color={getConnectionColor()} text={<Text>{getConnectionText()}</Text>} />
             <WifiOutlined style={{ fontSize: '20px', color: getConnectionColor() }} />
-            <Dropdown menu={languageMenu} placement="bottomRight">
-              <GlobalOutlined style={{ fontSize: '18px', cursor: 'pointer' }} />
-            </Dropdown>
           </Space>
         </Header>
         <Content

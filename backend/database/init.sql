@@ -11,6 +11,7 @@
 -- 3. 任务历史（task_history）
 -- 4. 配置模板（config_templates）
 -- 5. 集群节点管理（machines）
+-- 6. TLS 证书管理（tls_certificates）
 -- ============================================
 
 -- 创建数据库
@@ -131,6 +132,23 @@ CREATE TABLE IF NOT EXISTS machines (
     INDEX idx_status_role (status, role)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='集群节点注册表';
+
+-- ============================================
+-- 6. TLS 证书管理表 (tls_certificates)
+-- ============================================
+CREATE TABLE IF NOT EXISTS tls_certificates (
+    id VARCHAR(36) PRIMARY KEY COMMENT '证书ID（UUID格式）',
+    name VARCHAR(255) NOT NULL COMMENT '证书名称（用户自定义）',
+    description TEXT COMMENT '证书描述',
+    cert_content TEXT NOT NULL COMMENT '证书内容（PEM格式，完整文本）',
+    key_content TEXT NOT NULL COMMENT '私钥内容（PEM格式，完整文本）',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+
+    INDEX idx_name (name),
+    INDEX idx_created (created_at DESC)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='TLS证书配置（主机存储，从机按需拉取）';
 
 -- ============================================
 -- 初始化数据

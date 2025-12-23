@@ -23,7 +23,6 @@ import {
   UploadOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
-import { useTranslation } from 'react-i18next';
 import { apiService } from '@/services/api';
 import type { UploadFile } from 'antd/es/upload/interface';
 
@@ -46,7 +45,6 @@ interface InjectionFile {
  * 注入文件管理页面
  */
 const InjectionFiles: React.FC = () => {
-  const { t } = useTranslation();
   const [files, setFiles] = useState<InjectionFile[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
@@ -63,7 +61,7 @@ const InjectionFiles: React.FC = () => {
         setFiles(response.files);
       }
     } catch (error: any) {
-      message.error(`${t('common.failed')}: ${error.message}`);
+      message.error(`${"失败"}: ${error.message}`);
     } finally {
       setLoading(false);
     }
@@ -116,18 +114,18 @@ const InjectionFiles: React.FC = () => {
       const values = await form.validateFields();
       const response = await apiService.saveInjectionFile(values);
       if (response.success) {
-        message.success(t('common.saveSuccess'));
+        message.success("保存成功");
         setModalVisible(false);
         form.resetFields();
         loadFiles();
       } else {
-        message.error(response.error || t('common.saveFailed'));
+        message.error(response.error || "保存失败");
       }
     } catch (error: any) {
       if (error.errorFields) {
-        message.error(t('common.checkForm'));
+        message.error("请检查表单输入");
       } else {
-        message.error(`${t('common.saveFailed')}: ${error.message}`);
+        message.error(`${"保存失败"}: ${error.message}`);
       }
     }
   };
@@ -137,20 +135,20 @@ const InjectionFiles: React.FC = () => {
     try {
       const response = await apiService.deleteInjectionFile(filename);
       if (response.success) {
-        message.success(t('common.deleteSuccess'));
+        message.success("删除成功");
         loadFiles();
       } else {
-        message.error(response.error || t('common.deleteFailed'));
+        message.error(response.error || "删除失败");
       }
     } catch (error: any) {
-      message.error(`${t('common.deleteFailed')}: ${error.message}`);
+      message.error(`${"删除失败"}: ${error.message}`);
     }
   };
 
   // 表格列定义
   const columns: ColumnsType<InjectionFile> = [
     {
-      title: t('injectionFiles.filename'),
+      title: "文件名",
       dataIndex: 'filename',
       key: 'filename',
       width: 200,
@@ -162,13 +160,13 @@ const InjectionFiles: React.FC = () => {
       ),
     },
     {
-      title: t('common.description'),
+      title: "描述",
       dataIndex: 'description',
       key: 'description',
       ellipsis: true,
     },
     {
-      title: t('injectionFiles.readMode'),
+      title: "读取模式",
       dataIndex: 'read_mode',
       key: 'read_mode',
       width: 120,
@@ -182,28 +180,28 @@ const InjectionFiles: React.FC = () => {
       },
     },
     {
-      title: t('injectionFiles.fieldCount'),
+      title: "字段数",
       dataIndex: 'field_count',
       key: 'field_count',
       width: 80,
       align: 'center',
     },
     {
-      title: t('injectionFiles.rowCount'),
+      title: "数据行数",
       dataIndex: 'row_count',
       key: 'row_count',
       width: 100,
       align: 'center',
     },
     {
-      title: t('injectionFiles.createTime'),
+      title: "创建时间",
       dataIndex: 'created_at',
       key: 'created_at',
       width: 180,
       render: (text) => new Date(text).toLocaleString(),
     },
     {
-      title: t('common.actions'),
+      title: "操作",
       key: 'action',
       width: 150,
       render: (_, record) => (
@@ -214,17 +212,17 @@ const InjectionFiles: React.FC = () => {
             icon={<EditOutlined />}
             onClick={() => handleOpenModal('edit', record)}
           >
-            {t('common.edit')}
+            {"编辑"}
           </Button>
           <Popconfirm
-            title={t('common.confirmDelete')}
-            description={t('injectionFiles.deleteFile')}
+            title={"确认删除"}
+            description={"删除文件"}
             onConfirm={() => handleDelete(record.filename)}
-            okText={t('common.confirm')}
-            cancelText={t('common.cancel')}
+            okText={"确认"}
+            cancelText={"取消"}
           >
             <Button type="link" size="small" danger icon={<DeleteOutlined />}>
-              {t('common.delete')}
+              {"删除"}
             </Button>
           </Popconfirm>
         </Space>
@@ -238,7 +236,7 @@ const InjectionFiles: React.FC = () => {
         title={
           <Space>
             <FileTextOutlined />
-            <span>{t('injectionFiles.title')}</span>
+            <span>{"注入文件"}</span>
           </Space>
         }
         extra={
@@ -247,7 +245,7 @@ const InjectionFiles: React.FC = () => {
             icon={<PlusOutlined />}
             onClick={() => handleOpenModal('create')}
           >
-            {t('injectionFiles.newFile')}
+            {"新建注入文件"}
           </Button>
         }
       >
@@ -355,13 +353,13 @@ To: <sip:[field2]@[remote_ip]>
           rowKey="id"
           pagination={{
             pageSize: 10,
-            showTotal: (total) => `${total} ${t('injectionFiles.title').toLowerCase()}`,
+            showTotal: (total) => `${total} ${"注入文件".toLowerCase()}`,
           }}
         />
       </Card>
 
       <Modal
-        title={modalMode === 'create' ? t('injectionFiles.newFile') : t('injectionFiles.editFile')}
+        title={modalMode === 'create' ? "新建注入文件" : "编辑注入文件"}
         open={modalVisible}
         onOk={handleSave}
         onCancel={() => {
@@ -370,22 +368,22 @@ To: <sip:[field2]@[remote_ip]>
           setFileList([]);
         }}
         width={800}
-        okText={t('common.save')}
-        cancelText={t('common.cancel')}
+        okText={"保存"}
+        cancelText={"取消"}
       >
         <Form form={form} layout="vertical">
           <Form.Item
-            label={t('injectionFiles.filename')}
+            label={"文件名"}
             name="filename"
             rules={[
-              { required: true, message: t('injectionFiles.pleaseInputFilename') },
+              { required: true, message: "请输入文件名" },
               { pattern: /^[\w-]+\.csv$/, message: 'Filename must end with .csv' },
             ]}
           >
             <Input placeholder="users_4000-4010.csv" disabled={modalMode === 'edit'} />
           </Form.Item>
-          <Form.Item label={t('common.description')} name="description">
-            <Input placeholder={t('common.description')} />
+          <Form.Item label={"描述"} name="description">
+            <Input placeholder={"描述"} />
           </Form.Item>
 
           <Tabs
