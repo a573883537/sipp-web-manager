@@ -109,47 +109,48 @@ apiRouter.post('/sipp/disconnect', (_req: Request, res: Response) => {
  * 启动SIPp测试（支持分布式调度）
  */
 apiRouter.post('/sipp/start', async (req: Request, res: Response): Promise<void> => {
+  const {
+    taskId,
+    scenarioFile,
+    scenarioContent, // 新增：场景文件内容（从主机推送）
+    injectionContent, // 新增：注入文件内容（从主机推送）
+    oocsfContent, // 新增：oocsf文件内容（从主机推送）
+    regScenarioContent, // 新增：注册场景文件内容（从主机推送）
+    machineId, // 新增：指定从机ID，不指定则自动选择
+    rate = 10,
+    users = 100,
+    limit = 0,
+    remoteHost = '127.0.0.1',
+    remotePort = 5060,
+    localPort = 5061,
+    transport = 'udp',
+    timeout = 60000,
+    injectionFile,
+    minRtpPort,
+    maxRtpPort,
+    enableRtpEcho,
+    mediaIp,
+    oocsf,
+    // TLS 相关选项
+    certId,
+    regScenarioFile,
+    regMaxCalls,
+    // 日志追踪选项
+    traceMsg,
+    traceErr,
+    traceCalldebug,
+    traceShortmsg,
+    traceLogs,
+    traceRtt,
+    traceScreen,
+    // 其他高级选项
+    localIp,
+    bindLocal,
+    rsa,
+    autoAnswer,
+  } = req.body;
+
   try {
-    const {
-      taskId,
-      scenarioFile,
-      scenarioContent, // 新增：场景文件内容（从主机推送）
-      injectionContent, // 新增：注入文件内容（从主机推送）
-      oocsfContent, // 新增：oocsf文件内容（从主机推送）
-      regScenarioContent, // 新增：注册场景文件内容（从主机推送）
-      machineId, // 新增：指定从机ID，不指定则自动选择
-      rate = 10,
-      users = 100,
-      limit = 0,
-      remoteHost = '127.0.0.1',
-      remotePort = 5060,
-      localPort = 5061,
-      transport = 'udp',
-      timeout = 60000,
-      injectionFile,
-      minRtpPort,
-      maxRtpPort,
-      enableRtpEcho,
-      mediaIp,
-      oocsf,
-      // TLS 相关选项
-      certId,
-      regScenarioFile,
-      regMaxCalls,
-      // 日志追踪选项
-      traceMsg,
-      traceErr,
-      traceCalldebug,
-      traceShortmsg,
-      traceLogs,
-      traceRtt,
-      traceScreen,
-      // 其他高级选项
-      localIp,
-      bindLocal,
-      rsa,
-      autoAnswer,
-    } = req.body;
 
     if (!scenarioFile) {
       res.status(400).json({
@@ -299,6 +300,24 @@ apiRouter.post('/sipp/start', async (req: Request, res: Response): Promise<void>
     });
   } catch (error: any) {
     logger.error('Failed to start SIPp test:', error);
+
+    // 启动失败时，更新任务状态为失败
+    if (taskId) {
+      try {
+        await taskHistoryRepository.update(taskId, {
+          status: 'FAILED',
+          end_time: Date.now(),
+          error: error.message || String(error),
+        });
+        logger.info('Updated task status to failed', { taskId, error: error.message });
+      } catch (updateError: any) {
+        logger.error('Failed to update task status on error', {
+          taskId,
+          error: updateError.message || String(updateError),
+        });
+      }
+    }
+
     res.status(500).json({ success: false, error: error.message });
   }
 });
