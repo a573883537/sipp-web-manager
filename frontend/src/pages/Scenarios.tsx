@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Card, Table, Button, Space, message, Modal, Form, InputNumber, Input, Select, Tag, Switch, Collapse, Popconfirm, List, Tooltip, Upload } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, EyeOutlined, PlayCircleOutlined, SettingOutlined, SaveOutlined, StarOutlined, StarFilled, AppstoreOutlined, AudioOutlined, ClockCircleOutlined, BugOutlined, ToolOutlined, CopyOutlined, FileTextOutlined, UploadOutlined, CodeOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, DeleteOutlined, EyeOutlined, PlayCircleOutlined, SettingOutlined, SaveOutlined, StarOutlined, StarFilled, AppstoreOutlined, AudioOutlined, ClockCircleOutlined, BugOutlined, CopyOutlined, FileTextOutlined, UploadOutlined, CodeOutlined } from '@ant-design/icons';
 import { apiService } from '@/services/api';
 import { useAppStore } from '@/stores/useAppStore';
 import type { ScenarioFile, Scenario, TestTask, MachineInfo } from '@/types';
@@ -545,8 +545,8 @@ const Scenarios: React.FC = () => {
       users: 10,
       limit: 10,
       transport: 'udp',
-      minRtpPort: 6000,
-      maxRtpPort: 6100,
+      minRtpPort: undefined, // 可选配置
+      maxRtpPort: undefined, // 可选配置
       enableRtpEcho: false,
       timeout: 120000,
       traceMsg: false,
@@ -628,10 +628,15 @@ const Scenarios: React.FC = () => {
       });
 
       // 启动测试，传递任务ID
-      await apiService.startSippTest({
+      // 规范化 RTP 端口值：将 null/undefined/0 转换为 undefined（不传递）
+      const normalizedValues = {
         ...values,
         taskId,
-      });
+        minRtpPort: values.minRtpPort && values.minRtpPort > 0 ? values.minRtpPort : undefined,
+        maxRtpPort: values.maxRtpPort && values.maxRtpPort > 0 ? values.maxRtpPort : undefined,
+      };
+
+      await apiService.startSippTest(normalizedValues);
       message.success("测试已启动");
       setStartTestVisible(false);
       startTestForm.resetFields();
@@ -819,8 +824,8 @@ const Scenarios: React.FC = () => {
             users: 10,
             limit: 10,
             transport: 'udp',
-            minRtpPort: 6000,
-            maxRtpPort: 6100,
+            minRtpPort: undefined, // 可选配置
+            maxRtpPort: undefined, // 可选配置
             enableRtpEcho: false,
             timeout: 120000,
             traceMsg: false,
@@ -1013,11 +1018,69 @@ const Scenarios: React.FC = () => {
                 children: (
                   <>
                     <Space style={{ width: '100%' }} size="large">
-                      <Form.Item name="minRtpPort" label="RTP Min Port" style={{ flex: 1 }}>
-                        <InputNumber min={1024} max={65535} placeholder="6000" style={{ width: '100%' }} />
+                      <Form.Item
+                        name="minRtpPort"
+                        label="RTP Min Port (可选)"
+                        style={{ flex: 1 }}
+                        dependencies={['maxRtpPort']}
+                        rules={[
+                          ({ getFieldValue }) => ({
+                            validator(_, value) {
+                              const maxRtpPort = getFieldValue('maxRtpPort');
+
+                              // 两者都为空或0，允许
+                              if ((!value || value === 0) && (!maxRtpPort || maxRtpPort === 0)) {
+                                return Promise.resolve();
+                              }
+
+                              // 只有一个有值，不允许
+                              if ((value && value > 0) && (!maxRtpPort || maxRtpPort === 0)) {
+                                return Promise.reject(new Error('设置最小端口时，必须同时设置最大端口'));
+                              }
+
+                              // 两者都有值，检查大小关系
+                              if (value && maxRtpPort && value >= maxRtpPort) {
+                                return Promise.reject(new Error('最小端口必须小于最大端口'));
+                              }
+
+                              return Promise.resolve();
+                            },
+                          }),
+                        ]}
+                      >
+                        <InputNumber min={1024} max={65535} placeholder="留空表示不限制" style={{ width: '100%' }} />
                       </Form.Item>
-                      <Form.Item name="maxRtpPort" label="RTP Max Port" style={{ flex: 1 }}>
-                        <InputNumber min={1024} max={65535} placeholder="6100" style={{ width: '100%' }} />
+                      <Form.Item
+                        name="maxRtpPort"
+                        label="RTP Max Port (可选)"
+                        style={{ flex: 1 }}
+                        dependencies={['minRtpPort']}
+                        rules={[
+                          ({ getFieldValue }) => ({
+                            validator(_, value) {
+                              const minRtpPort = getFieldValue('minRtpPort');
+
+                              // 两者都为空或0，允许
+                              if ((!minRtpPort || minRtpPort === 0) && (!value || value === 0)) {
+                                return Promise.resolve();
+                              }
+
+                              // 只有一个有值，不允许
+                              if ((!minRtpPort || minRtpPort === 0) && (value && value > 0)) {
+                                return Promise.reject(new Error('设置最大端口时，必须同时设置最小端口'));
+                              }
+
+                              // 两者都有值，检查大小关系
+                              if (minRtpPort && value && minRtpPort >= value) {
+                                return Promise.reject(new Error('最大端口必须大于最小端口'));
+                              }
+
+                              return Promise.resolve();
+                            },
+                          }),
+                        ]}
+                      >
+                        <InputNumber min={1024} max={65535} placeholder="留空表示不限制" style={{ width: '100%' }} />
                       </Form.Item>
                     </Space>
 
@@ -1038,49 +1101,6 @@ const Scenarios: React.FC = () => {
                         <Select.Option value={false}>Off</Select.Option>
                         <Select.Option value={true}>On</Select.Option>
                       </Select>
-                    </Form.Item>
-                  </>
-                ),
-              },
-              {
-                key: 'scenario',
-                label: <><ToolOutlined /> {"高级选项"}</>,
-                forceRender: true,
-                children: (
-                  <>
-                    <Form.Item
-                      name="oocsf"
-                      label={"会话外场景文件"}
-                    >
-                      <Select placeholder={"选择会话外场景文件"} allowClear showSearch optionFilterProp="children">
-                        {scenarios.filter(s => s.filename !== selectedScenario?.filename).map(s => (
-                          <Select.Option key={s.filename} value={s.filename}>
-                            {s.name} ({s.filename})
-                          </Select.Option>
-                        ))}
-                      </Select>
-                    </Form.Item>
-
-                    <Form.Item
-                      name="regScenarioFile"
-                      label="注册场景文件 (TLS连接复用)"
-                      tooltip="TLS传输时先执行注册场景，主场景复用TLS连接。适用于需要先注册再发起呼叫的场景。"
-                    >
-                      <Select placeholder="选择注册场景文件（可选）" allowClear showSearch optionFilterProp="children">
-                        {scenarios.filter(s => s.filename !== selectedScenario?.filename).map(s => (
-                          <Select.Option key={s.filename} value={s.filename}>
-                            {s.name} ({s.filename})
-                          </Select.Option>
-                        ))}
-                      </Select>
-                    </Form.Item>
-
-                    <Form.Item
-                      name="regMaxCalls"
-                      label="注册呼叫最大数量"
-                      tooltip="限制注册呼叫的次数，0或不填表示无限制"
-                    >
-                      <InputNumber min={0} max={1000000} placeholder="无限制" style={{ width: '100%' }} />
                     </Form.Item>
                   </>
                 ),
@@ -1118,6 +1138,43 @@ const Scenarios: React.FC = () => {
                 forceRender: true,
                 children: (
                   <Space direction="vertical" style={{ width: '100%' }}>
+                    {/* 场景相关高级选项 */}
+                    <Form.Item
+                      name="oocsf"
+                      label={"会话外场景文件"}
+                    >
+                      <Select placeholder={"选择会话外场景文件"} allowClear showSearch optionFilterProp="children">
+                        {scenarios.filter(s => s.filename !== selectedScenario?.filename).map(s => (
+                          <Select.Option key={s.filename} value={s.filename}>
+                            {s.name} ({s.filename})
+                          </Select.Option>
+                        ))}
+                      </Select>
+                    </Form.Item>
+
+                    <Form.Item
+                      name="regScenarioFile"
+                      label="注册场景文件 (TLS连接复用)"
+                      tooltip="TLS传输时先执行注册场景，主场景复用TLS连接。适用于需要先注册再发起呼叫的场景。"
+                    >
+                      <Select placeholder="选择注册场景文件（可选）" allowClear showSearch optionFilterProp="children">
+                        {scenarios.filter(s => s.filename !== selectedScenario?.filename).map(s => (
+                          <Select.Option key={s.filename} value={s.filename}>
+                            {s.name} ({s.filename})
+                          </Select.Option>
+                        ))}
+                      </Select>
+                    </Form.Item>
+
+                    <Form.Item
+                      name="regMaxCalls"
+                      label="注册呼叫最大数量"
+                      tooltip="限制注册呼叫的次数，0或不填表示无限制"
+                    >
+                      <InputNumber min={0} max={1000000} placeholder="无限制" style={{ width: '100%' }} />
+                    </Form.Item>
+
+                    {/* 网络相关高级选项 */}
                     <Form.Item name="localIp" label="Local IP">
                       <Input placeholder="Auto" />
                     </Form.Item>

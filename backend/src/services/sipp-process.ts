@@ -222,17 +222,32 @@ class SippProcessInstance extends EventEmitter {
       args.push('-inf', injectionPath);
     }
 
-    // 添加RTP端口范围
-    if (minRtpPort !== undefined && maxRtpPort !== undefined) {
-      if (minRtpPort < 1024 || minRtpPort > 65535 || maxRtpPort < 1024 || maxRtpPort > 65535) {
+    // 添加RTP端口范围（可选配置）
+    // 规范化端口值：将 null/undefined/0 都视为未设置
+    const normalizedMinRtpPort = minRtpPort && minRtpPort > 0 ? minRtpPort : null;
+    const normalizedMaxRtpPort = maxRtpPort && maxRtpPort > 0 ? maxRtpPort : null;
+
+    if (normalizedMinRtpPort && normalizedMaxRtpPort) {
+      // 两个端口都有值，验证并添加参数
+      if (normalizedMinRtpPort < 1024 || normalizedMinRtpPort > 65535 ||
+          normalizedMaxRtpPort < 1024 || normalizedMaxRtpPort > 65535) {
         throw new Error('RTP ports must be between 1024 and 65535');
       }
-      if (minRtpPort >= maxRtpPort) {
+      if (normalizedMinRtpPort >= normalizedMaxRtpPort) {
         throw new Error('minRtpPort must be less than maxRtpPort');
       }
-      args.push('-min_rtp_port', minRtpPort.toString());
-      args.push('-max_rtp_port', maxRtpPort.toString());
+      args.push('-min_rtp_port', normalizedMinRtpPort.toString());
+      args.push('-max_rtp_port', normalizedMaxRtpPort.toString());
+      logger.info('Using RTP port range', {
+        taskId: this.taskId,
+        minRtpPort: normalizedMinRtpPort,
+        maxRtpPort: normalizedMaxRtpPort,
+      });
+    } else if (normalizedMinRtpPort || normalizedMaxRtpPort) {
+      // 只有一个端口有值，抛出错误
+      throw new Error('Both minRtpPort and maxRtpPort must be set together, or both left empty');
     }
+    // 如果两个都为 null，不添加任何参数，使用系统默认端口
 
     // 启用RTP回音
     if (enableRtpEcho) {
