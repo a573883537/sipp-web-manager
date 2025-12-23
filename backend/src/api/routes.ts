@@ -925,15 +925,23 @@ apiRouter.post('/injection-files/validate', (req: Request, res: Response) => {
 
 /**
  * 获取所有任务历史（仅已完成的任务）
- * 仅返回当前节点的任务（主机='master'，从机=当前machineId）
+ * 主机模式：返回所有节点的任务历史
+ * 从机模式：仅返回当前从机的任务历史
  */
 apiRouter.get('/task-history', async (_req: Request, res: Response): Promise<void> => {
   try {
-    // 获取当前节点的 machine_id（主机固定为 'master'）
-    const currentMachineId = config.node.role === 'master' ? 'master' : config.node.machineId;
+    let tasks;
 
-    // 只查询当前节点的任务历史
-    const tasks = await taskHistoryRepository.findAll(currentMachineId);
+    if (config.node.role === 'master') {
+      // 主机模式：查询所有节点的任务历史（不过滤 machine_id）
+      tasks = await taskHistoryRepository.findAll();
+      logger.debug('Master queried all task history (all machines)');
+    } else {
+      // 从机模式：只查询当前从机的任务历史
+      const currentMachineId = config.node.machineId;
+      tasks = await taskHistoryRepository.findAll(currentMachineId);
+      logger.debug(`Slave queried task history for machine: ${currentMachineId}`);
+    }
 
     res.json({
       success: true,
