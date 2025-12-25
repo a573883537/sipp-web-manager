@@ -52,7 +52,7 @@ SIPp Web Manager 是一个基于主从集群架构的 Web SIPp 测试管理平�
 │  │  - WebSocket Client (Socket.IO)     │─────────────┐        │
 │  │    * 连接到主机:3000 (单一长连接)   │             │        │
 │  │    * 发送: slave:register           │             │        │
-│  │    * 发送: slave:heartbeat (10秒)   │             │        │
+│  │    * 发送: slave:heartbeat (按需)   │             │        │
 │  │    * 发送: slave:offline            │             │        │
 │  └─────────────────────────────────────┘             │        │
 │       │                                               │        │
@@ -73,10 +73,11 @@ SIPp Web Manager 是一个基于主从集群架构的 Web SIPp 测试管理平�
 
 **WebSocket Server (Socket.IO)**
 - 接收前端连接：实时推送测试数据、任务状态到 Web UI
-- 接收从机连接：接收心跳包和数据上报
+- 接收从机连接：接收注册和按需状态上报
   - 事件：`slave:register`（从机注册/重连）
-  - 事件：`slave:heartbeat`（定期心跳，10秒间隔）
+  - 事件：`slave:heartbeat`（按需状态上报）
   - 事件：`slave:offline`（主动离线通知）
+  - 事件：`status:request`（主机主动请求状态）
 
 #### 从机（Slave）端口 3000
 
@@ -87,18 +88,22 @@ SIPp Web Manager 是一个基于主从集群架构的 Web SIPp 测试管理平�
 
 **WebSocket Client (Socket.IO)**
 - **连接到主机:3000（单一长连接）**
-- 发送 `slave:register`：首次连接或重连时注册自己（ID、名称、IP、端口、SIPp版本）
-- 发送 `slave:heartbeat`：每10秒发送心跳包（状态、CPU、内存、运行任务数）
+- 发送 `slave:register`：首次连接或重连时注册自己（ID、名称、IP、端口）
+- 发送 `slave:heartbeat`：按需上报状态（任务变化时或响应主机请求）
 - 发送 `slave:offline`：主动断开前通知主机
+- 监听 `status:request`：响应主机的状态查询请求
 - **无 WebSocket Server**（从机不接受连接）
+- **连接保活**：依赖 Socket.IO 内置 ping/pong（25秒间隔），无应用层周期性心跳
 
 #### 关键设计原则
 
 1. **单一长连接**：从机通过一个 WebSocket 连接完成所有通信，消除 TCP 短连接导致的 TIME_WAIT 堆积
 2. **连接方向**：从机 → 主机（从机主动连接，主机被动接受）
-3. **自动重连**：从机网络中断后自动重连，支持指数退避策略
-4. **端口复用**：主机3000端口同时服务 HTTP + WebSocket（前端和从机共用）
-5. **角色隔离**：主机提供 Web UI，从机仅提供 API（通过 `NODE_ROLE` 环境变量区分）
+3. **传输层保活**：依赖 Socket.IO 内置 ping/pong（25秒间隔）和 TCP keepalive，无冗余应用层心跳
+4. **按需上报**：状态上报采用事件驱动模式，仅在任务变化或主机请求时发送，减少网络开销
+5. **自动重连**：从机网络中断后自动重连，连接失败时记录计数供调试
+6. **端口复用**：主机3000端口同时服务 HTTP + WebSocket（前端和从机共用）
+7. **角色隔离**：主机提供 Web UI，从机仅提供 API（通过 `NODE_ROLE` 环境变量区分）
 
 **核心组件：**
 - **主机（Master）**: 唯一管理节点，提供 Web UI 和任务调度
@@ -287,12 +292,6 @@ DB_PORT=3306
 DB_NAME=sipp_manager
 DB_USER=sipp
 DB_PASSWORD=sipp123456
-
-# 心跳配置
-HEARTBEAT_INTERVAL=10000  # 基础心跳间隔（毫秒，默认10秒）
-HEARTBEAT_TIMEOUT=5000  # 心跳超时时间（毫秒，默认5秒）
-HEARTBEAT_MAX_RETRY_INTERVAL=120000  # 失败重试最大间隔（毫秒，默认120秒）
-HEARTBEAT_BACKOFF_ENABLED=true  # 启用指数退避（默认启用）
 ```
 
 ## 📋 使用指南
@@ -393,11 +392,12 @@ curl http://<主机IP>:3000/api/health
 sudo systemctl restart sipp-web-manager-slave
 ```
 
-**心跳重试机制：**
-- 当从机与主机网络中断时，系统会自动启用**指数退避策略**，减少无效重试
-- 重试间隔：10秒 → 20秒 → 40秒 → 80秒 → 120秒（最大）
-- 网络恢复后立即恢复正常10秒间隔
-- 如需禁用退避（保持固定10秒重试），设置环境变量 `HEARTBEAT_BACKOFF_ENABLED=false`
+**连接保活与重连机制：**
+- Socket.IO 内置 ping/pong 机制（默认 25 秒间隔）自动检测连接活性
+- 当从机与主机网络中断时，Socket.IO 自动重连（1-5秒间隔，无限重试）
+- 重连成功后立即发送 `slave:register` 事件重新注册
+- 状态上报采用按需模式，仅在任务变化或主机请求时发送，减少网络开销
+- 连接失败次数会被记录在日志中供调试使用
 
 
 ### 场景文件未找到
@@ -457,8 +457,9 @@ MIT License
 - ✨ 新增 TLS/DTLS 证书管理功能
 - 🔧 RTP 端口范围改为可选配置
 - 🔄 **心跳机制重构为 WebSocket 长连接**（消除 TCP 短连接导致的 TIME_WAIT 堆积）
-- 🚀 从机通过单一 WebSocket 连接完成所有通信（注册、心跳、数据上报）
-- 📡 支持指数退避策略，网络故障时自动调整重试间隔
+- 🚀 从机通过单一 WebSocket 连接完成所有通信（注册、状态上报）
+- ⚡ **移除冗余应用层心跳**（依赖 Socket.IO 内置 ping/pong 和 TCP keepalive）
+- 📊 **状态上报改为按需模式**（事件驱动，减少网络开销）
 - 🐛 修复主机任务历史显示（现在显示所有节点的任务，便于集中管理）
 - 🐛 修复手动停止任务时数据未归档问题
 - 🐛 修复主机 machine_id 配置错误（现在正确为 'master'）

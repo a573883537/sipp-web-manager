@@ -14,9 +14,15 @@ class WebSocketService {
    * 连接到后端WebSocket
    */
   connect(url?: string): void {
-    if (this.socket?.connected) {
-      console.warn('WebSocket already connected');
-      return;
+    // 如果已经连接，先断开旧连接
+    if (this.socket) {
+      if (this.socket.connected) {
+        console.warn('WebSocket already connected, reusing existing connection');
+        return;
+      }
+      // 清理未连接的 socket 实例
+      this.socket.disconnect();
+      this.socket = null;
     }
 
     const wsPort = import.meta.env.VITE_WS_PORT || '3000';
@@ -24,14 +30,16 @@ class WebSocketService {
     const connectUrl = url || defaultUrl;
 
     this.socket = io(connectUrl, {
-      transports: ['websocket', 'polling'],
+      transports: ['websocket'], // 仅使用 WebSocket，禁用 polling 降级
       reconnection: true,
       reconnectionDelay: 1000,
-      reconnectionAttempts: 5,
+      reconnectionAttempts: Infinity, // 无限重连
+      reconnectionDelayMax: 5000,
+      timeout: 20000,
     });
 
     this.setupEventHandlers();
-    console.log('WebSocket connecting to:', url);
+    console.log('WebSocket connecting to:', connectUrl);
   }
 
   /**

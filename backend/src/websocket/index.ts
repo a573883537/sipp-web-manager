@@ -97,7 +97,7 @@ export class WebSocketService {
    */
   private async handleSlaveRegister(socket: Socket, data: any): Promise<void> {
     try {
-      const { id, name, ipAddress, apiPort, role, sippVersion, status } = data;
+      const { id, name, ipAddress, apiPort, role, status } = data;
 
       logger.info(`Slave registering via WebSocket: ${id} (${ipAddress}:${apiPort})`);
 
@@ -115,15 +115,15 @@ export class WebSocketService {
             status = ?,
             last_heartbeat = ?
           WHERE id = ?`,
-          [name, ipAddress, apiPort, role, sippVersion, status, Date.now(), id]
+          [name, ipAddress, apiPort, role, status, Date.now(), id]
         );
         logger.info(`Slave re-registered: ${id}`);
       } else {
         // 不存在：插入新记录
         await query(
           `INSERT INTO machines (id, name, ip_address, api_port, role, status, last_heartbeat, total_tasks)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)`,
-          [id, name, ipAddress, apiPort, role, sippVersion, status, Date.now()]
+           VALUES (?, ?, ?, ?, ?, ?, ?, 0)`,
+          [id, name, ipAddress, apiPort, role, status, Date.now()]
         );
         logger.info(`Slave registered: ${id}`);
       }
@@ -152,7 +152,7 @@ export class WebSocketService {
    */
   private async handleSlaveHeartbeat(socket: Socket, data: any): Promise<void> {
     try {
-      const { id, status, sippVersion, cpuUsage, memoryUsage, runningTasks } = data;
+      const { id, status, cpuUsage, memoryUsage, runningTasks } = data;
 
       await query(
         `UPDATE machines SET
@@ -162,7 +162,7 @@ export class WebSocketService {
           running_tasks = ?,
           last_heartbeat = ?
         WHERE id = ?`,
-        [status, sippVersion, cpuUsage, memoryUsage, runningTasks, Date.now(), id]
+        [status, cpuUsage, memoryUsage, runningTasks, Date.now(), id]
       );
 
       logger.debug(`Heartbeat received from slave: ${id} (CPU: ${cpuUsage}%, MEM: ${memoryUsage}%, Tasks: ${runningTasks})`);

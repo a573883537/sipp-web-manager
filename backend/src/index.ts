@@ -5,7 +5,7 @@ import { config, validateConfig } from './config';
 import { logger } from './utils/logger';
 import { sippClient } from './services/sipp-client';
 import { sippProcessManager } from './services/sipp-process';
-import { heartbeatService } from './services/heartbeat';
+import { slaveConnectionService } from './services/heartbeat';
 import { masterRegistryService } from './services/master-registry';
 import { WebSocketService } from './websocket';
 import { testConnection, initializeDatabase } from './database';
@@ -381,8 +381,8 @@ class SippWebManagerApp {
 ╚═══════════════════════════════════════════════════════════╝
         `);
 
-        // 启动心跳服务（仅从机模式）
-        heartbeatService.start();
+        // 启动从机连接服务（仅从机模式）
+        slaveConnectionService.start();
 
         // 启动主机注册服务（仅主机模式）
         masterRegistryService.start();
@@ -399,8 +399,8 @@ class SippWebManagerApp {
   async shutdown(): Promise<void> {
     logger.info('Shutting down gracefully...');
 
-    // 1. 停止心跳服务（从机）
-    heartbeatService.stop();
+    // 1. 停止从机连接服务（从机）
+    slaveConnectionService.stop();
 
     // 2. 停止主机注册服务（主机）
     masterRegistryService.stop();

@@ -38,7 +38,10 @@ const Layout: React.FC = () => {
       ? `http://localhost:${wsPort}`
       : `http://${window.location.hostname}:${wsPort}`;
 
-    wsService.connect(backendUrl);
+    // 仅在未连接时才建立连接（防止 React StrictMode 重复连接）
+    if (!wsService.isConnected()) {
+      wsService.connect(backendUrl);
+    }
 
     // 监听连接状态
     const handleConnection = (data: any) => {
@@ -49,7 +52,8 @@ const Layout: React.FC = () => {
 
     return () => {
       wsService.off('connection', handleConnection);
-      wsService.disconnect();
+      // 不要在 cleanup 中断开连接，因为 StrictMode 会导致频繁重连
+      // WebSocket 连接应该在整个应用生命周期保持
     };
   }, []);
 

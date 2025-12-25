@@ -2,32 +2,32 @@ import { config } from '../config';
 import { logger } from '../utils/logger';
 import { sippProcessManager } from './sipp-process';
 import os from 'os';
-import { execSync } from 'child_process';
 import { io, Socket } from 'socket.io-client';
 
 /**
- * 从机心跳服务（WebSocket客户端）
- * 职责：通过WebSocket长连接向主机上报本机状态
+ * 从机连接管理服务（WebSocket客户端）
+ * 职责：维护与主机的 WebSocket 长连接，按需上报状态
  *
  * Kernel 风格设计：
- * - 数据结构驱动：心跳包统一JSON格式
- * - WebSocket长连接：单一连接复用，消除TCP短连接问题
- * - 自动恢复：网络故障自动重连，带指数退避（exponential backoff）
- * - 最小复杂度：仅 3 个方法（start/stop/send）
+ * - 连接保活：依赖 Socket.IO 内置 ping/pong（25秒间隔）
+ * - 状态上报：按需发送（任务变化时）或响应主机请求
+ * - 命令处理：接收并执行主机指令（预留）
+ * - 断线恢复：自动重连并同步状态
+ *
+ * 设计原则：
+ * - 无周期性轮询：Socket.IO 的 ping/pong 足以保持连接活性
+ * - 事件驱动上报：仅在状态变化或被请求时上报
+ * - 最小网络开销：消除不必要的应用层心跳包
  */
-export class HeartbeatService {
-  private timer: NodeJS.Timeout | null = null;
+export class SlaveConnectionService {
+  private socket: Socket | null = null;
   private readonly machineId = config.node.machineId;
   private readonly machineName = config.node.machineName;
-  private readonly baseInterval = config.node.heartbeatInterval;
   private readonly masterWsUrl: string;
-  private socket: Socket | null = null;
-  private sippVersionCache: string | null = null;
   private lastCpuTimes: { idle: number; total: number } | null = null;
 
-  // 退避策略相关字段
+  // 重连退避策略相关字段
   private consecutiveFailures = 0;
-  private currentInterval = config.node.heartbeatInterval;
 
   constructor() {
     // 构建主机WebSocket地址
@@ -35,11 +35,11 @@ export class HeartbeatService {
   }
 
   /**
-   * 启动心跳服务
+   * 启动连接服务
    */
   start(): void {
     if (config.node.role !== 'slave') {
-      logger.info('Heartbeat service skipped: not a slave node');
+      logger.info('Slave connection service skipped: not a slave node');
       return;
     }
 
@@ -50,6 +50,8 @@ export class HeartbeatService {
       reconnectionDelayMax: 5000,
       reconnectionAttempts: Infinity,
       transports: ['websocket'],
+      // Socket.IO 默认 pingInterval: 25000, pingTimeout: 20000
+      // 无需应用层心跳，依赖 Socket.IO 内置 ping/pong
     });
 
     // 监听连接成功事件
@@ -60,55 +62,35 @@ export class HeartbeatService {
       this.register();
 
       // 重置失败计数器
-      this.onHeartbeatSuccess();
+      this.onConnectionRecovered();
     });
 
     // 监听断开事件
     this.socket.on('disconnect', (reason: string) => {
       logger.warn(`WebSocket disconnected: ${reason}`);
-      this.onHeartbeatFailure();
+      this.onConnectionLost();
     });
 
     // 监听连接错误
     this.socket.on('connect_error', (error: Error) => {
       logger.error('WebSocket connection error:', { error: error.message });
-      this.onHeartbeatFailure();
+      this.onConnectionLost();
     });
 
-    // 定期心跳（使用动态间隔）
-    this.scheduleNextHeartbeat();
+    // 监听主机请求状态上报
+    this.socket.on('status:request', () => {
+      this.reportStatus();
+    });
 
-    logger.info(`Heartbeat service started: ${this.machineId} (base interval: ${this.baseInterval}ms)`);
+    logger.info(`Slave connection service started: ${this.machineId}`);
     logger.info(`Master WebSocket URL: ${this.masterWsUrl}`);
-    if (config.node.heartbeatBackoffEnabled) {
-      logger.info(`Exponential backoff enabled (max interval: ${config.node.heartbeatMaxRetryInterval}ms)`);
-    }
+    logger.info('Status reporting mode: on-demand (event-driven)');
   }
 
   /**
-   * 调度下次心跳
-   */
-  private scheduleNextHeartbeat(): void {
-    if (this.timer) {
-      clearTimeout(this.timer);
-    }
-
-    this.timer = setTimeout(() => {
-      this.sendHeartbeat();
-      // 继续调度下次心跳
-      this.scheduleNextHeartbeat();
-    }, this.currentInterval);
-  }
-
-  /**
-   * 停止心跳服务
+   * 停止连接服务
    */
   stop(): void {
-    if (this.timer) {
-      clearTimeout(this.timer);
-      this.timer = null;
-    }
-
     // 发送离线通知
     this.setOffline();
 
@@ -118,7 +100,7 @@ export class HeartbeatService {
       this.socket = null;
     }
 
-    logger.info('Heartbeat service stopped');
+    logger.info('Slave connection service stopped');
   }
 
   /**
@@ -133,18 +115,12 @@ export class HeartbeatService {
     try {
       const ip = this.getLocalIP();
 
-      // 使用缓存的 SIPp 版本（首次获取后缓存）
-      if (this.sippVersionCache === null) {
-        this.sippVersionCache = this.getSippVersion();
-      }
-
       const payload = {
         id: this.machineId,
         name: this.machineName,
         ipAddress: ip,
         apiPort: config.server.port,
         role: 'slave' as const,
-        sippVersion: this.sippVersionCache,
         status: 'online' as const,
       };
 
@@ -157,21 +133,20 @@ export class HeartbeatService {
   }
 
   /**
-   * 发送心跳（更新状态）
+   * 按需上报状态（公开方法，供外部调用）
+   * 使用场景：
+   * - 任务启动/停止/完成时主动上报
+   * - 响应主机的 status:request 事件
+   * - 系统资源发生显著变化时
    */
-  private sendHeartbeat(): void {
+  public reportStatus(): void {
     if (!this.socket || !this.socket.connected) {
-      logger.debug('Skipping heartbeat: WebSocket not connected');
+      logger.debug('Cannot report status: WebSocket not connected');
       return;
     }
 
     try {
       const stats = this.getSystemStats();
-
-      // 使用缓存的 SIPp 版本
-      if (this.sippVersionCache === null) {
-        this.sippVersionCache = this.getSippVersion();
-      }
 
       // 从本地 sippProcessManager 获取运行任务数
       const runningTasks = sippProcessManager.getRunningCount();
@@ -179,7 +154,6 @@ export class HeartbeatService {
       const payload = {
         id: this.machineId,
         status: 'online' as const,
-        sippVersion: this.sippVersionCache,
         cpuUsage: stats.cpu,
         memoryUsage: stats.memory,
         runningTasks,
@@ -187,9 +161,9 @@ export class HeartbeatService {
 
       this.socket.emit('slave:heartbeat', payload);
 
-      logger.debug(`Heartbeat sent via WebSocket: ${this.machineId} (CPU: ${stats.cpu}%, MEM: ${stats.memory}%, Tasks: ${runningTasks})`);
+      logger.debug(`Status reported: ${this.machineId} (CPU: ${stats.cpu}%, MEM: ${stats.memory}%, Tasks: ${runningTasks})`);
     } catch (error: any) {
-      logger.error('Failed to send heartbeat:', { error: error.message, machineId: this.machineId });
+      logger.error('Failed to report status:', { error: error.message, machineId: this.machineId });
     }
   }
 
@@ -216,39 +190,21 @@ export class HeartbeatService {
   }
 
   /**
-   * 心跳成功处理（重置退避）
+   * 连接恢复处理（重置退避计数）
    */
-  private onHeartbeatSuccess(): void {
+  private onConnectionRecovered(): void {
     if (this.consecutiveFailures > 0) {
-      logger.info(`Heartbeat recovered after ${this.consecutiveFailures} failures, reset interval to ${this.baseInterval}ms`);
+      logger.info(`Connection recovered after ${this.consecutiveFailures} failures`);
       this.consecutiveFailures = 0;
-      this.currentInterval = this.baseInterval;
     }
   }
 
   /**
-   * 心跳失败处理（应用指数退避）
+   * 连接丢失处理（记录失败次数，供调试）
    */
-  private onHeartbeatFailure(): void {
-    if (!config.node.heartbeatBackoffEnabled) {
-      return;
-    }
-
+  private onConnectionLost(): void {
     this.consecutiveFailures++;
-
-    // 指数退避公式：interval = baseInterval * 2^failures
-    const backoffInterval = Math.min(
-      this.baseInterval * Math.pow(2, this.consecutiveFailures),
-      config.node.heartbeatMaxRetryInterval
-    );
-
-    if (backoffInterval !== this.currentInterval) {
-      this.currentInterval = backoffInterval;
-      logger.warn(
-        `Heartbeat failure #${this.consecutiveFailures}, increasing interval to ${this.currentInterval}ms` +
-        ` (max: ${config.node.heartbeatMaxRetryInterval}ms)`
-      );
-    }
+    logger.debug(`Connection failure count: ${this.consecutiveFailures}`);
   }
 
   /**
@@ -325,26 +281,6 @@ export class HeartbeatService {
 
     return '127.0.0.1';
   }
-
-  /**
-   * 获取 SIPp 版本
-   */
-  private getSippVersion(): string {
-    try {
-      const output = execSync('sipp -v', {
-        encoding: 'utf-8',
-        timeout: 3000,
-      });
-
-      const match = output.match(/SIPp\s+v(\S+)/i);
-      if (match) {
-        return match[1].replace(/\.$/, '');
-      }
-      return 'unknown';
-    } catch (error: any) {
-      return 'unknown';
-    }
-  }
 }
 
-export const heartbeatService = new HeartbeatService();
+export const slaveConnectionService = new SlaveConnectionService();
