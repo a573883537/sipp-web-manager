@@ -1,4 +1,3 @@
-import axios, { AxiosError } from 'axios';
 import { config } from '../config';
 import { query } from '../database';
 import { logger } from '../utils/logger';
@@ -28,8 +27,8 @@ interface SlaveInfo {
  *
  * Kernel 风格设计：
  * - 数据驱动：基于 machines 表状态做决策
- * - WebSocket 优先：优先使用 WebSocket 通信，HTTP 作为降级
- * - 容错性：从机离线自动降级
+ * - WebSocket 单一通道：所有主机→从机通信都通过 WebSocket
+ * - 无 HTTP 降级：完全依赖 WebSocket 连接，连接断开时直接报错
  */
 export class SlaveManager {
   private readonly requestTimeout = 30000; // 30s
@@ -100,7 +99,7 @@ export class SlaveManager {
 
   /**
    * 在指定从机上启动测试
-   * 优先使用 WebSocket，降级到 HTTP
+   * 仅通过 WebSocket 通信，无 HTTP 降级
    */
   async startTestOnSlave(
     machineId: string,
@@ -114,6 +113,19 @@ export class SlaveManager {
     }
 
     logger.info(`Starting test on slave ${machineId}: ${taskId}`);
+
+    // 检查 WebSocket 连接
+    if (!this.wsService) {
+      throw new Error(`WebSocketService not available`);
+    }
+
+    if (!this.wsService.isSlaveConnected(machineId)) {
+      const connectedSlaves = this.wsService.getConnectedSlaves();
+      throw new Error(
+        `Slave ${machineId} not connected via WebSocket. ` +
+        `Connected slaves: ${connectedSlaves.length > 0 ? connectedSlaves.join(', ') : 'none'}`
+      );
+    }
 
     // 读取场景文件内容
     const scenarioPath = path.join(config.sipp.scenarioDir, scenarioFile);
@@ -152,44 +164,13 @@ export class SlaveManager {
       },
     };
 
-    // 优先使用 WebSocket
-    if (this.wsService && this.wsService.isSlaveConnected(machineId)) {
-      try {
-        await this.wsService.sendCommandToSlave(machineId, 'task:start', payload, this.requestTimeout);
-        logger.info(`Test started on slave ${machineId} via WebSocket: ${taskId}`);
-        return;
-      } catch (error: any) {
-        logger.warn(`WebSocket command failed, falling back to HTTP: ${error.message}`);
-        // 降级到 HTTP
-      }
-    }
-
-    // 降级：使用 HTTP（HTTP payload 格式不同，直接展开）
-    const httpPayload = {
-      taskId,
-      scenarioFile,
-      scenarioContent,
-      injectionContent,
-      oocsfContent,
-      regScenarioContent,
-      ...options,
-    };
-
-    const url = `http://${slave.ipAddress}:${slave.apiPort}/api/sipp/start`;
+    // 通过 WebSocket 发送命令
     try {
-      const response = await axios.post(url, httpPayload, {
-        timeout: this.requestTimeout,
-        headers: { 'Content-Type': 'application/json' },
-      });
-
-      if (!response.data?.success) {
-        throw new Error(response.data?.error || 'Unknown error from slave');
-      }
-
-      logger.info(`Test started on slave ${machineId} via HTTP (fallback): ${taskId}`);
+      await this.wsService.sendCommandToSlave(machineId, 'task:start', payload, this.requestTimeout);
+      logger.info(`Test started on slave ${machineId} via WebSocket: ${taskId}`);
     } catch (error: any) {
-      this.handleSlaveError(machineId, error);
-      throw new Error(`Failed to start test on slave ${machineId}: ${error.message}`);
+      logger.error(`Failed to start test on slave ${machineId} via WebSocket: ${error.message}`);
+      throw error;
     }
   }
 
@@ -212,7 +193,7 @@ export class SlaveManager {
 
   /**
    * 停止从机上的测试
-   * 优先使用 WebSocket，降级到 HTTP
+   * 仅通过 WebSocket 通信，无 HTTP 降级
    */
   async stopTestOnSlave(
     machineId: string,
@@ -226,47 +207,30 @@ export class SlaveManager {
 
     logger.info(`Stopping test on slave ${machineId}: ${taskId} (force: ${force})`);
 
-    const payload = { taskId, force };
-
-    // 优先使用 WebSocket
-    if (this.wsService && this.wsService.isSlaveConnected(machineId)) {
-      try {
-        await this.wsService.sendCommandToSlave(machineId, 'task:stop', payload, this.requestTimeout);
-        logger.info(`Test stopped on slave ${machineId} via WebSocket: ${taskId}`);
-        return;
-      } catch (error: any) {
-        logger.warn(`WebSocket command failed, falling back to HTTP: ${error.message}`);
-        // 降级到 HTTP
-      }
+    // 检查 WebSocket 连接
+    if (!this.wsService) {
+      throw new Error(`WebSocketService not available`);
     }
 
-    // 降级：使用 HTTP
-    const url = `http://${slave.ipAddress}:${slave.apiPort}/api/sipp/stop`;
+    if (!this.wsService.isSlaveConnected(machineId)) {
+      throw new Error(`Slave ${machineId} not connected via WebSocket`);
+    }
 
+    const payload = { taskId, force };
+
+    // 通过 WebSocket 发送命令
     try {
-      const response = await axios.post(
-        url,
-        payload,
-        {
-          timeout: this.requestTimeout,
-          headers: { 'Content-Type': 'application/json' },
-        }
-      );
-
-      if (!response.data?.success) {
-        throw new Error(response.data?.error || 'Unknown error from slave');
-      }
-
-      logger.info(`Test stopped on slave ${machineId} via HTTP (fallback): ${taskId}`);
+      await this.wsService.sendCommandToSlave(machineId, 'task:stop', payload, this.requestTimeout);
+      logger.info(`Test stopped on slave ${machineId} via WebSocket: ${taskId}`);
     } catch (error: any) {
-      this.handleSlaveError(machineId, error);
-      throw new Error(`Failed to stop test on slave ${machineId}: ${error.message}`);
+      logger.error(`Failed to stop test on slave ${machineId} via WebSocket: ${error.message}`);
+      throw error;
     }
   }
 
   /**
    * 获取从机上的任务状态
-   * 优先使用 WebSocket，降级到 HTTP
+   * 仅通过 WebSocket 通信，无 HTTP 降级
    */
   async getTaskStatusFromSlave(machineId: string, taskId: string): Promise<any> {
     const slave = await this.getSlaveInfo(machineId);
@@ -274,73 +238,51 @@ export class SlaveManager {
       throw new Error(`Slave not found: ${machineId}`);
     }
 
-    // 优先使用 WebSocket
-    if (this.wsService && this.wsService.isSlaveConnected(machineId)) {
-      try {
-        const result = await this.wsService.sendCommandToSlave(
-          machineId,
-          'task:stats:request',
-          { taskId },
-          this.requestTimeout
-        );
-        logger.debug(`Task status retrieved from slave ${machineId} via WebSocket: ${taskId}`);
-        return result;
-      } catch (error: any) {
-        logger.warn(`WebSocket command failed, falling back to HTTP: ${error.message}`);
-        // 降级到 HTTP
-      }
+    // 检查 WebSocket 连接
+    if (!this.wsService) {
+      throw new Error(`WebSocketService not available`);
     }
 
-    // 降级：使用 HTTP
-    const url = `http://${slave.ipAddress}:${slave.apiPort}/api/sipp/status/${taskId}`;
+    if (!this.wsService.isSlaveConnected(machineId)) {
+      throw new Error(`Slave ${machineId} not connected via WebSocket`);
+    }
 
+    // 通过 WebSocket 获取状态
     try {
-      const response = await axios.get(url, {
-        timeout: this.requestTimeout,
-      });
-
-      if (!response.data?.success) {
-        throw new Error(response.data?.error || 'Unknown error from slave');
-      }
-
-      logger.debug(`Task status retrieved from slave ${machineId} via HTTP (fallback): ${taskId}`);
-      return response.data.data;
+      const result = await this.wsService.sendCommandToSlave(
+        machineId,
+        'task:stats:request',
+        { taskId },
+        this.requestTimeout
+      );
+      logger.debug(`Task status retrieved from slave ${machineId} via WebSocket: ${taskId}`);
+      return result;
     } catch (error: any) {
-      this.handleSlaveError(machineId, error);
-      throw new Error(`Failed to get task status from slave ${machineId}: ${error.message}`);
+      logger.error(`Failed to get task status from slave ${machineId} via WebSocket: ${error.message}`);
+      throw error;
     }
   }
 
   /**
    * 健康检查
-   * 支持主机和从机的健康检查
+   * 基于 WebSocket 连接状态
    */
   async checkSlaveHealth(machineId: string): Promise<boolean> {
-    // 如果检查的是主机自己，直接返回 true（无需 HTTP 请求）
+    // 如果检查的是主机自己，直接返回 true
     if (machineId === 'master' || machineId === config.node.machineId) {
       logger.info(`Health check for master node: always healthy (local check)`);
       return true;
     }
 
-    // 从机健康检查：通过 HTTP 请求
-    const slave = await this.getSlaveInfo(machineId);
-    if (!slave) {
-      logger.warn(`Slave not found in database: ${machineId}`);
+    // 从机健康检查：基于 WebSocket 连接状态
+    if (!this.wsService) {
+      logger.warn(`WebSocketService not available for health check: ${machineId}`);
       return false;
     }
 
-    const url = `http://${slave.ipAddress}:${slave.apiPort}/api/health`;
-
-    try {
-      const response = await axios.get(url, {
-        timeout: 5000, // 健康检查用短超时
-      });
-
-      return response.status === 200 && response.data?.success;
-    } catch (error: any) {
-      logger.warn(`Health check failed for slave ${machineId}: ${error.message}`);
-      return false;
-    }
+    const isConnected = this.wsService.isSlaveConnected(machineId);
+    logger.info(`Health check for slave ${machineId}: ${isConnected ? 'healthy (connected)' : 'unhealthy (disconnected)'}`);
+    return isConnected;
   }
 
   /**
@@ -380,24 +322,6 @@ export class SlaveManager {
     }
   }
 
-  /**
-   * 统一错误处理
-   */
-  private handleSlaveError(machineId: string, error: any): void {
-    if (axios.isAxiosError(error)) {
-      const axiosError = error as AxiosError;
-
-      if (axiosError.code === 'ECONNREFUSED') {
-        logger.error(`Slave ${machineId} is unreachable (connection refused)`);
-      } else if (axiosError.code === 'ETIMEDOUT') {
-        logger.error(`Slave ${machineId} request timeout`);
-      } else {
-        logger.error(`Slave ${machineId} HTTP error: ${axiosError.message}`);
-      }
-    } else {
-      logger.error(`Slave ${machineId} unexpected error:`, error);
-    }
-  }
 }
 
 export const slaveManager = new SlaveManager();

@@ -63,8 +63,15 @@ export class SlaveCommandHandler {
     try {
       logger.info(`Received task:start command: ${taskId}`, { requestId });
 
+      // 从config中提取scenarioFile和其他选项
+      const { scenarioFile, ...options } = taskConfig;
+
       // 启动 SIPp 进程
-      const pid = await sippProcessManager.start(taskId, taskConfig);
+      await sippProcessManager.start(taskId, scenarioFile, options);
+
+      // 获取进程状态（包含pid）
+      const status = sippProcessManager.getStatus(taskId);
+      const pid = status?.pid || null;
 
       // 发送成功响应
       this.socket.emit('task:start:ack', {
