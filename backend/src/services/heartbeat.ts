@@ -64,13 +64,13 @@ export class HeartbeatService {
     });
 
     // 监听断开事件
-    this.socket.on('disconnect', (reason) => {
+    this.socket.on('disconnect', (reason: string) => {
       logger.warn(`WebSocket disconnected: ${reason}`);
       this.onHeartbeatFailure();
     });
 
     // 监听连接错误
-    this.socket.on('connect_error', (error) => {
+    this.socket.on('connect_error', (error: Error) => {
       logger.error('WebSocket connection error:', { error: error.message });
       this.onHeartbeatFailure();
     });
