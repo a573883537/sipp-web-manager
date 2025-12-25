@@ -233,8 +233,11 @@ DB_NAME=sipp_manager
 DB_USER=sipp
 DB_PASSWORD=sipp123456
 
-# 心跳间隔
-HEARTBEAT_INTERVAL=10000  # 10秒
+# 心跳配置
+HEARTBEAT_INTERVAL=10000  # 基础心跳间隔（毫秒，默认10秒）
+HEARTBEAT_TIMEOUT=5000  # 心跳超时时间（毫秒，默认5秒）
+HEARTBEAT_MAX_RETRY_INTERVAL=120000  # 失败重试最大间隔（毫秒，默认120秒）
+HEARTBEAT_BACKOFF_ENABLED=true  # 启用指数退避（默认启用）
 ```
 
 ## 📋 使用指南
@@ -334,6 +337,13 @@ curl http://<主机IP>:3000/api/health
 # 重启从机服务
 sudo systemctl restart sipp-web-manager-slave
 ```
+
+**心跳重试机制：**
+- 当从机与主机网络中断时，系统会自动启用**指数退避策略**，减少无效重试
+- 重试间隔：10秒 → 20秒 → 40秒 → 80秒 → 120秒（最大）
+- 网络恢复后立即恢复正常10秒间隔
+- 如需禁用退避（保持固定10秒重试），设置环境变量 `HEARTBEAT_BACKOFF_ENABLED=false`
+
 
 ### 场景文件未找到
 

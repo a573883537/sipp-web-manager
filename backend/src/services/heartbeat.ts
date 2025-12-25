@@ -12,17 +12,21 @@ import axios from 'axios';
  * Kernel 风格设计：
  * - 数据结构驱动：状态信息统一格式
  * - API通信：去除数据库依赖，仅通过主机API交互
- * - 自动恢复：网络故障自动重试
+ * - 自动恢复：网络故障自动重试，带指数退避（exponential backoff）
  * - 最小复杂度：仅 3 个方法（start/stop/report）
  */
 export class HeartbeatService {
   private timer: NodeJS.Timeout | null = null;
   private readonly machineId = config.node.machineId;
   private readonly machineName = config.node.machineName;
-  private readonly interval = config.node.heartbeatInterval;
+  private readonly baseInterval = config.node.heartbeatInterval;
   private readonly masterApiUrl: string;
   private sippVersionCache: string | null = null; // 缓存SIPp版本
   private lastCpuTimes: { idle: number; total: number } | null = null; // 上次CPU时间采样
+
+  // 退避策略相关字段
+  private consecutiveFailures = 0; // 连续失败次数
+  private currentInterval = config.node.heartbeatInterval; // 当前重试间隔
 
   constructor() {
     // 构建主机API地址
@@ -43,15 +47,34 @@ export class HeartbeatService {
       logger.error('Failed to register machine:', err);
     });
 
-    // 定期心跳
-    this.timer = setInterval(() => {
-      this.sendHeartbeat().catch(err => {
-        logger.error('Heartbeat failed:', err);
-      });
-    }, this.interval);
+    // 定期心跳（使用动态间隔）
+    this.scheduleNextHeartbeat();
 
-    logger.info(`Heartbeat service started: ${this.machineId} (interval: ${this.interval}ms)`);
+    logger.info(`Heartbeat service started: ${this.machineId} (base interval: ${this.baseInterval}ms)`);
     logger.info(`Master API: ${this.masterApiUrl}`);
+    if (config.node.heartbeatBackoffEnabled) {
+      logger.info(`Exponential backoff enabled (max interval: ${config.node.heartbeatMaxRetryInterval}ms)`);
+    }
+  }
+
+  /**
+   * 调度下次心跳
+   */
+  private scheduleNextHeartbeat(): void {
+    if (this.timer) {
+      clearTimeout(this.timer);
+    }
+
+    this.timer = setTimeout(() => {
+      this.sendHeartbeat()
+        .catch(err => {
+          logger.error('Heartbeat failed:', err);
+        })
+        .finally(() => {
+          // 无论成功失败，都调度下次心跳
+          this.scheduleNextHeartbeat();
+        });
+    }, this.currentInterval);
   }
 
   /**
@@ -59,7 +82,7 @@ export class HeartbeatService {
    */
   stop(): void {
     if (this.timer) {
-      clearInterval(this.timer);
+      clearTimeout(this.timer);
       this.timer = null;
     }
 
@@ -95,14 +118,21 @@ export class HeartbeatService {
       };
 
       await axios.post(`${this.masterApiUrl}/machines/heartbeat`, payload, {
-        timeout: 5000,
+        timeout: config.node.heartbeatTimeout,
         headers: { 'Content-Type': 'application/json' },
       });
 
       logger.info(`Machine registered: ${this.machineId} (${ip}:${config.server.port})`);
+
+      // 成功后重置失败计数器
+      this.onHeartbeatSuccess();
     } catch (error: any) {
       const errorMsg = error.response?.data?.error || error.message || String(error);
       logger.error('Failed to register machine:', { error: errorMsg, machineId: this.machineId });
+
+      // 失败后增加计数器
+      this.onHeartbeatFailure();
+
       throw error;
     }
   }
@@ -133,15 +163,60 @@ export class HeartbeatService {
       };
 
       await axios.post(`${this.masterApiUrl}/machines/heartbeat`, payload, {
-        timeout: 5000,
+        timeout: config.node.heartbeatTimeout,
         headers: { 'Content-Type': 'application/json' },
       });
 
       logger.debug(`Heartbeat sent: ${this.machineId} (CPU: ${stats.cpu}%, MEM: ${stats.memory}%, Tasks: ${runningTasks}, SIPp: ${this.sippVersionCache})`);
+
+      // 成功后重置失败计数器
+      this.onHeartbeatSuccess();
     } catch (error: any) {
       const errorMsg = error.response?.data?.error || error.message || String(error);
       logger.error('Failed to send heartbeat:', { error: errorMsg, machineId: this.machineId, url: this.masterApiUrl });
+
+      // 失败后增加计数器
+      this.onHeartbeatFailure();
+
       // 不抛出异常，允许下次重试
+    }
+  }
+
+  /**
+   * 心跳成功处理（重置退避）
+   */
+  private onHeartbeatSuccess(): void {
+    if (this.consecutiveFailures > 0) {
+      logger.info(`Heartbeat recovered after ${this.consecutiveFailures} failures, reset interval to ${this.baseInterval}ms`);
+      this.consecutiveFailures = 0;
+      this.currentInterval = this.baseInterval;
+    }
+  }
+
+  /**
+   * 心跳失败处理（应用指数退避）
+   */
+  private onHeartbeatFailure(): void {
+    if (!config.node.heartbeatBackoffEnabled) {
+      // 退避功能禁用，保持原有间隔
+      return;
+    }
+
+    this.consecutiveFailures++;
+
+    // 指数退避公式：interval = baseInterval * 2^failures
+    // 但限制最大间隔为 heartbeatMaxRetryInterval
+    const backoffInterval = Math.min(
+      this.baseInterval * Math.pow(2, this.consecutiveFailures),
+      config.node.heartbeatMaxRetryInterval
+    );
+
+    if (backoffInterval !== this.currentInterval) {
+      this.currentInterval = backoffInterval;
+      logger.warn(
+        `Heartbeat failure #${this.consecutiveFailures}, increasing interval to ${this.currentInterval}ms` +
+        ` (max: ${config.node.heartbeatMaxRetryInterval}ms)`
+      );
     }
   }
 
@@ -157,7 +232,7 @@ export class HeartbeatService {
       };
 
       await axios.post(`${this.masterApiUrl}/machines/heartbeat`, payload, {
-        timeout: 3000,
+        timeout: config.node.heartbeatTimeout,
         headers: { 'Content-Type': 'application/json' },
       });
 

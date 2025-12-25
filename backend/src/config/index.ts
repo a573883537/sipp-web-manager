@@ -21,11 +21,14 @@ export const config = {
   // 节点配置（主从架构）
   node: {
     role: (process.env.NODE_ROLE || 'slave') as 'master' | 'slave',
-    machineId: process.env.MACHINE_ID || `slave-${os.hostname()}`,
+    machineId: process.env.MACHINE_ID || (process.env.NODE_ROLE === 'master' ? 'master' : `slave-${os.hostname()}`),
     machineName: process.env.MACHINE_NAME || os.hostname(),
     masterHost: process.env.MASTER_HOST || '127.0.0.1',
     masterPort: parseInt(process.env.MASTER_PORT || '3000', 10),
     heartbeatInterval: parseInt(process.env.HEARTBEAT_INTERVAL || '10000', 10),
+    heartbeatTimeout: parseInt(process.env.HEARTBEAT_TIMEOUT || '5000', 10),
+    heartbeatMaxRetryInterval: parseInt(process.env.HEARTBEAT_MAX_RETRY_INTERVAL || '120000', 10),
+    heartbeatBackoffEnabled: process.env.HEARTBEAT_BACKOFF_ENABLED !== 'false',
   },
 
   // SIPp配置
