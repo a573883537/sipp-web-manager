@@ -229,6 +229,44 @@ export class SlaveManager {
   }
 
   /**
+   * 发送控制命令到从机（如设置速率、暂停/恢复等）
+   * 仅通过 WebSocket 通信，无 HTTP 降级
+   */
+  async sendControlCommandToSlave(
+    machineId: string,
+    taskId: string,
+    command: string,
+    args?: any
+  ): Promise<void> {
+    const slave = await this.getSlaveInfo(machineId);
+    if (!slave) {
+      throw new Error(`Slave not found: ${machineId}`);
+    }
+
+    logger.info(`Sending control command to slave ${machineId}: ${command} for task ${taskId}`);
+
+    // 检查 WebSocket 连接
+    if (!this.wsService) {
+      throw new Error(`WebSocketService not available`);
+    }
+
+    if (!this.wsService.isSlaveConnected(machineId)) {
+      throw new Error(`Slave ${machineId} not connected via WebSocket`);
+    }
+
+    const payload = { taskId, command, args };
+
+    // 通过 WebSocket 发送命令
+    try {
+      await this.wsService.sendCommandToSlave(machineId, 'task:command', payload, this.requestTimeout);
+      logger.info(`Control command ${command} sent to slave ${machineId} via WebSocket: ${taskId}`);
+    } catch (error: any) {
+      logger.error(`Failed to send control command to slave ${machineId} via WebSocket: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
    * 获取从机上的任务状态
    * 仅通过 WebSocket 通信，无 HTTP 降级
    */

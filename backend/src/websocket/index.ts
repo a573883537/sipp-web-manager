@@ -842,6 +842,11 @@ export class WebSocketService {
       this.handleSlaveResponse('task:stop:ack', data);
     });
 
+    // 任务控制命令 ACK
+    socket.on('task:command:ack', (data: any) => {
+      this.handleSlaveResponse('task:command:ack', data);
+    });
+
     // 任务状态请求 ACK
     socket.on('task:stats:request:ack', (data: any) => {
       this.handleSlaveResponse('task:stats:request:ack', data);

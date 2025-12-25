@@ -36,17 +36,22 @@ export class SlaveCommandHandler {
       await this.handleTaskStop(data);
     });
 
-    // 3. 请求任务统计
+    // 3. 控制命令（设置速率、暂停/恢复等）
+    this.socket.on('task:command', async (data) => {
+      await this.handleTaskCommand(data);
+    });
+
+    // 4. 请求任务统计
     this.socket.on('task:stats:request', async (data) => {
       await this.handleTaskStatsRequest(data);
     });
 
-    // 4. 同步文件
+    // 5. 同步文件
     this.socket.on('file:sync', async (data) => {
       await this.handleFileSync(data);
     });
 
-    // 5. 请求上传日志
+    // 6. 请求上传日志
     this.socket.on('logs:upload:request', async (data) => {
       await this.handleLogUploadRequest(data);
     });
@@ -123,6 +128,41 @@ export class SlaveCommandHandler {
         requestId,
         success: false,
         taskId,
+        error: error.message || String(error),
+      });
+    }
+  }
+
+  /**
+   * 处理控制命令（设置速率、暂停/恢复等）
+   */
+  private async handleTaskCommand(data: any): Promise<void> {
+    const { requestId, taskId, command, args } = data;
+
+    try {
+      logger.info(`Received task:command: ${command} for task ${taskId}`, { requestId, args });
+
+      // 发送命令到 SIPp 进程
+      await sippProcessManager.sendCommand(taskId, command, args);
+
+      // 发送成功响应
+      this.socket.emit('task:command:ack', {
+        requestId,
+        success: true,
+        taskId,
+        command,
+      });
+
+      logger.info(`Control command ${command} executed successfully on task ${taskId}`);
+    } catch (error: any) {
+      logger.error(`Failed to execute command ${command} on task ${taskId}:`, error);
+
+      // 发送失败响应
+      this.socket.emit('task:command:ack', {
+        requestId,
+        success: false,
+        taskId,
+        command,
         error: error.message || String(error),
       });
     }

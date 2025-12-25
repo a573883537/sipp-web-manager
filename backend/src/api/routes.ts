@@ -2049,35 +2049,13 @@ apiRouter.post('/machines/sipp/control', async (req: Request, res: Response): Pr
       return;
     }
 
-    // 如果是从机任务，转发到从机
-    const machines = await query('SELECT * FROM machines WHERE id = ?', [machineId]);
-    if (machines.length === 0) {
-      res.status(404).json({
-        success: false,
-        error: `Machine not found: ${machineId}`,
-      });
-      return;
-    }
-
-    const machine = machines[0] as any;
-    const slaveUrl = `http://${machine.ip_address}:${machine.api_port}/api/sipp/command`;
-
-    logger.info(`Forwarding to slave ${machineId} at ${slaveUrl}`);
-
-    const response = await axios.post(slaveUrl, {
-      taskId,
-      command,
-      args,
-    }, {
-      timeout: 10000,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    // 如果是从机任务，通过 WebSocket 转发
+    await slaveManager.sendControlCommandToSlave(machineId, taskId, command, args);
 
     res.json({
       success: true,
-      message: `Command ${command} forwarded to ${machineId}`,
+      message: `Command ${command} sent to slave ${machineId}`,
       machineId,
-      slaveResponse: response.data,
     });
   } catch (error: any) {
     logger.error('Failed to control SIPp task:', error);
@@ -2136,34 +2114,13 @@ apiRouter.post('/machines/sipp/stop', async (req: Request, res: Response): Promi
       return;
     }
 
-    // 如果是从机任务，转发到从机
-    const machines = await query('SELECT * FROM machines WHERE id = ?', [machineId]);
-    if (machines.length === 0) {
-      res.status(404).json({
-        success: false,
-        error: `Machine not found: ${machineId}`,
-      });
-      return;
-    }
-
-    const machine = machines[0] as any;
-    const slaveUrl = `http://${machine.ip_address}:${machine.api_port}/api/sipp/stop`;
-
-    logger.info(`Forwarding stop to slave ${machineId} at ${slaveUrl}`);
-
-    const response = await axios.post(slaveUrl, {
-      taskId,
-      force,
-    }, {
-      timeout: 10000,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    // 如果是从机任务，通过 WebSocket 转发
+    await slaveManager.stopTestOnSlave(machineId, taskId, force);
 
     res.json({
       success: true,
-      message: `Task stop forwarded to ${machineId}`,
+      message: `Task stopped on slave ${machineId}`,
       machineId,
-      slaveResponse: response.data,
     });
   } catch (error: any) {
     logger.error('Failed to stop SIPp task:', error);
