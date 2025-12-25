@@ -500,7 +500,6 @@ const Scenarios: React.FC = () => {
             status: 'online' as const,
             runningTasks: 0,
             totalTasks: 0,
-            lastHeartbeat: Date.now(),
           },
           ...response.machines,
         ];
@@ -518,7 +517,6 @@ const Scenarios: React.FC = () => {
         status: 'online' as const,
         runningTasks: 0,
         totalTasks: 0,
-        lastHeartbeat: Date.now(),
       }]);
     } finally {
       setMachinesLoading(false);

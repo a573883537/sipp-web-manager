@@ -152,8 +152,9 @@ export class SlaveCommandHandler {
       };
 
       // 发送统计响应
-      this.socket.emit('task:stats:response', {
+      this.socket.emit('task:stats:request:ack', {
         requestId,
+        success: true,
         taskId,
         stats,
       });
@@ -162,11 +163,11 @@ export class SlaveCommandHandler {
     } catch (error: any) {
       logger.error(`Failed to get task stats ${taskId}:`, error);
 
-      // 发送错误响应（stats 为空）
-      this.socket.emit('task:stats:response', {
+      // 发送错误响应
+      this.socket.emit('task:stats:request:ack', {
         requestId,
+        success: false,
         taskId,
-        stats: null,
         error: error.message || String(error),
       });
     }

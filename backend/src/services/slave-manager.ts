@@ -142,12 +142,14 @@ export class SlaveManager {
 
     const payload = {
       taskId,
-      scenarioFile,
-      scenarioContent,
-      injectionContent,
-      oocsfContent,
-      regScenarioContent,
-      ...options,
+      config: {
+        scenarioFile,
+        scenarioContent,
+        injectionContent,
+        oocsfContent,
+        regScenarioContent,
+        ...options,
+      },
     };
 
     // 优先使用 WebSocket
@@ -162,10 +164,20 @@ export class SlaveManager {
       }
     }
 
-    // 降级：使用 HTTP
+    // 降级：使用 HTTP（HTTP payload 格式不同，直接展开）
+    const httpPayload = {
+      taskId,
+      scenarioFile,
+      scenarioContent,
+      injectionContent,
+      oocsfContent,
+      regScenarioContent,
+      ...options,
+    };
+
     const url = `http://${slave.ipAddress}:${slave.apiPort}/api/sipp/start`;
     try {
-      const response = await axios.post(url, payload, {
+      const response = await axios.post(url, httpPayload, {
         timeout: this.requestTimeout,
         headers: { 'Content-Type': 'application/json' },
       });

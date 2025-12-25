@@ -348,7 +348,6 @@ export interface MachineInfo {
   memoryUsage?: number;
   runningTasks: number;
   totalTasks: number;
-  lastHeartbeat: number;
   createdAt?: string;
   updatedAt?: string;
 }

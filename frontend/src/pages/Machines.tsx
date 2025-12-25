@@ -203,21 +203,6 @@ const Machines: React.FC = () => {
     );
   };
 
-  /**
-   * 格式化心跳时间
-   */
-  const formatHeartbeat = (timestamp: number) => {
-    const now = Date.now();
-    const diff = now - timestamp;
-
-    if (diff < 30000) {
-      return <Text type="success">刚刚</Text>;
-    } else if (diff < 60000) {
-      return <Text type="warning">{dayjs(timestamp).fromNow()}</Text>;
-    } else {
-      return <Text type="danger">{dayjs(timestamp).fromNow()}</Text>;
-    }
-  };
 
   /**
    * 格式化持续时间
@@ -481,14 +466,6 @@ const Machines: React.FC = () => {
       width: 100,
       render: (count: number) => <Text>{count}</Text>,
       sorter: (a, b) => a.totalTasks - b.totalTasks,
-    },
-    {
-      title: '最后心跳',
-      dataIndex: 'lastHeartbeat',
-      key: 'lastHeartbeat',
-      width: 120,
-      render: (timestamp: number) => formatHeartbeat(timestamp),
-      sorter: (a, b) => b.lastHeartbeat - a.lastHeartbeat,
     },
     {
       title: '操作',

@@ -10,15 +10,16 @@ import { SlaveCommandHandler } from './slave-command-handler';
  * 职责：维护与主机的 WebSocket 长连接，按需上报状态
  *
  * Kernel 风格设计：
- * - 连接保活：依赖 Socket.IO 内置 ping/pong（25秒间隔）
- * - 状态上报：按需发送（任务变化时）或响应主机请求
- * - 命令处理：接收并执行主机指令（预留）
+ * - 连接保活：依赖 Socket.IO 内置 ping/pong（25秒间隔）和 TCP keepalive
+ * - 状态上报：仅在任务变化时按需上报（无周期性心跳）
+ * - 在线状态：基于 WebSocket 连接状态（connect/disconnect）
+ * - 命令处理：接收并执行主机指令
  * - 断线恢复：自动重连并同步状态
  *
  * 设计原则：
- * - 无周期性轮询：Socket.IO 的 ping/pong 足以保持连接活性
- * - 事件驱动上报：仅在状态变化或被请求时上报
- * - 最小网络开销：消除不必要的应用层心跳包
+ * - 无应用层心跳：Socket.IO 的 ping/pong 足以保持连接活性
+ * - 连接状态驱动：连接成功 = online，断开 = offline
+ * - 按需上报：仅在任务变化时发送状态更新
  */
 export class SlaveConnectionService {
   private socket: Socket | null = null;
@@ -91,7 +92,7 @@ export class SlaveConnectionService {
 
     logger.info(`Slave connection service started: ${this.machineId}`);
     logger.info(`Master WebSocket URL: ${this.masterWsUrl}`);
-    logger.info('Status reporting mode: on-demand (event-driven)');
+    logger.info('Status reporting mode: on-demand only (event-driven)');
   }
 
   /**
@@ -144,7 +145,6 @@ export class SlaveConnectionService {
    * 使用场景：
    * - 任务启动/停止/完成时主动上报
    * - 响应主机的 status:request 事件
-   * - 系统资源发生显著变化时
    */
   public reportStatus(): void {
     if (!this.socket || !this.socket.connected) {
