@@ -112,7 +112,6 @@ export class WebSocketService {
             ip_address = ?,
             api_port = ?,
             role = ?,
-            sipp_version = ?,
             status = ?,
             last_heartbeat = ?
           WHERE id = ?`,
@@ -122,7 +121,7 @@ export class WebSocketService {
       } else {
         // 不存在：插入新记录
         await query(
-          `INSERT INTO machines (id, name, ip_address, api_port, role, sipp_version, status, last_heartbeat, total_tasks)
+          `INSERT INTO machines (id, name, ip_address, api_port, role, status, last_heartbeat, total_tasks)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)`,
           [id, name, ipAddress, apiPort, role, sippVersion, status, Date.now()]
         );
@@ -158,7 +157,6 @@ export class WebSocketService {
       await query(
         `UPDATE machines SET
           status = ?,
-          sipp_version = ?,
           cpu_usage = ?,
           memory_usage = ?,
           running_tasks = ?,
