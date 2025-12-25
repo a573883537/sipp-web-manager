@@ -3,6 +3,7 @@ import { logger } from '../utils/logger';
 import { sippProcessManager } from './sipp-process';
 import os from 'os';
 import { io, Socket } from 'socket.io-client';
+import { SlaveCommandHandler } from './slave-command-handler';
 
 /**
  * 从机连接管理服务（WebSocket客户端）
@@ -25,6 +26,7 @@ export class SlaveConnectionService {
   private readonly machineName = config.node.machineName;
   private readonly masterWsUrl: string;
   private lastCpuTimes: { idle: number; total: number } | null = null;
+  private commandHandler: SlaveCommandHandler | null = null;
 
   // 重连退避策略相关字段
   private consecutiveFailures = 0;
@@ -60,6 +62,11 @@ export class SlaveConnectionService {
 
       // 连接成功后立即注册
       this.register();
+
+      // 初始化命令处理器（处理主机命令）
+      if (!this.commandHandler && this.socket) {
+        this.commandHandler = new SlaveCommandHandler(this.socket);
+      }
 
       // 重置失败计数器
       this.onConnectionRecovered();

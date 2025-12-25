@@ -14,7 +14,7 @@ import FormData from 'form-data';
 
 /**
  * WebSocket服务
- * 职责：管理WebSocket连接，实时推送SIPp数据到前端
+ * 职责：管理WebSocket连接，实时推送SIPp数据到前端，管理主从通信
  * 遵循单一职责原则和依赖倒置原则
  */
 export class WebSocketService {
@@ -22,6 +22,12 @@ export class WebSocketService {
   private csvParser: CsvParser | null = null;
   private statsInterval: NodeJS.Timeout | null = null;
   private taskStatsInterval: NodeJS.Timeout | null = null;
+
+  // 从机 WebSocket 连接映射（machineId -> socket）
+  private slaveSockets: Map<string, Socket> = new Map();
+
+  // 请求-响应追踪（requestId -> resolve函数）
+  private pendingRequests: Map<string, { resolve: Function; reject: Function; timeout: any }> = new Map();
 
   constructor(httpServer: HttpServer) {
     this.io = new SocketIOServer(httpServer, {
@@ -83,6 +89,18 @@ export class WebSocketService {
       // 断开连接
       socket.on('disconnect', () => {
         logger.info(`Client disconnected: ${socket.id}`);
+
+        // 如果是从机连接，从映射中移除
+        if (socket.data?.machineId && socket.data?.role === 'slave') {
+          const machineId = socket.data.machineId;
+          const currentSocket = this.slaveSockets.get(machineId);
+
+          // 只在是当前连接时才移除（避免移除已重连的新连接）
+          if (currentSocket && currentSocket.id === socket.id) {
+            this.slaveSockets.delete(machineId);
+            logger.info(`Slave socket removed from registry: ${machineId}`);
+          }
+        }
       });
 
       // 错误处理
@@ -138,6 +156,23 @@ export class WebSocketService {
          WHERE m.id = ?`,
         [id]
       );
+
+      // 保存从机 socket 到映射表（主机模式）
+      if (config.node.role === 'master') {
+        // 移除旧连接（如果存在）
+        const oldSocket = this.slaveSockets.get(id);
+        if (oldSocket && oldSocket.id !== socket.id) {
+          oldSocket.disconnect();
+        }
+
+        // 保存新连接
+        this.slaveSockets.set(id, socket);
+        socket.data = { machineId: id, role: 'slave' }; // 标记 socket 身份
+        logger.info(`Slave socket saved to registry: ${id} (socket: ${socket.id})`);
+
+        // 注册 ACK 响应监听器
+        this.registerSlaveAckHandlers(socket);
+      }
 
       // 确认注册成功
       socket.emit('slave:register:ack', { success: true, machineId: id });
@@ -745,6 +780,121 @@ export class WebSocketService {
    */
   getClientCount(): number {
     return this.io.sockets.sockets.size;
+  }
+
+  /**
+   * 通过 WebSocket 向从机发送命令（主机专用）
+   * 使用请求-响应模式，返回 Promise
+   *
+   * @param machineId 从机ID
+   * @param event 事件名称
+   * @param data 数据载荷
+   * @param timeoutMs 超时时间（毫秒，默认30秒）
+   * @returns Promise<响应数据>
+   */
+  async sendCommandToSlave(
+    machineId: string,
+    event: string,
+    data: any,
+    timeoutMs: number = 30000
+  ): Promise<any> {
+    if (config.node.role !== 'master') {
+      throw new Error('sendCommandToSlave can only be called on master node');
+    }
+
+    const socket = this.slaveSockets.get(machineId);
+    if (!socket || !socket.connected) {
+      throw new Error(`Slave ${machineId} is not connected`);
+    }
+
+    // 生成唯一请求ID
+    const requestId = `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
+
+    return new Promise((resolve, reject) => {
+      // 设置超时
+      const timeout: any = setTimeout(() => {
+        this.pendingRequests.delete(requestId);
+        reject(new Error(`Command timeout: ${event} to slave ${machineId}`));
+      }, timeoutMs);
+
+      // 保存到待处理请求
+      this.pendingRequests.set(requestId, { resolve, reject, timeout });
+
+      // 发送命令
+      socket.emit(event, { requestId, ...data });
+
+      logger.debug(`Command sent to slave ${machineId}: ${event} (requestId: ${requestId})`);
+    });
+  }
+
+  /**
+   * 为从机 socket 注册 ACK 响应监听器
+   * 当从机完成命令执行后发送 ACK 事件，通过此监听器 resolve 对应的 Promise
+   */
+  private registerSlaveAckHandlers(socket: Socket): void {
+    // 任务启动 ACK
+    socket.on('task:start:ack', (data: any) => {
+      this.handleSlaveResponse('task:start:ack', data);
+    });
+
+    // 任务停止 ACK
+    socket.on('task:stop:ack', (data: any) => {
+      this.handleSlaveResponse('task:stop:ack', data);
+    });
+
+    // 任务状态请求 ACK
+    socket.on('task:stats:request:ack', (data: any) => {
+      this.handleSlaveResponse('task:stats:request:ack', data);
+    });
+
+    logger.debug(`Registered ACK handlers for slave socket: ${socket.id}`);
+  }
+
+  /**
+   * 处理从机响应（通用ACK处理器）
+   * 从机的所有 ACK 事件应调用此方法
+   */
+  private handleSlaveResponse(ackEvent: string, data: any): void {
+    const { requestId, success, error, ...rest } = data;
+
+    if (!requestId) {
+      logger.warn(`Received ${ackEvent} without requestId`);
+      return;
+    }
+
+    const pending = this.pendingRequests.get(requestId);
+    if (!pending) {
+      logger.debug(`Received ${ackEvent} for unknown requestId: ${requestId}`);
+      return;
+    }
+
+    // 清除超时
+    clearTimeout(pending.timeout);
+    this.pendingRequests.delete(requestId);
+
+    // 解决 Promise
+    if (success) {
+      pending.resolve(rest);
+      logger.debug(`Command succeeded: ${ackEvent} (requestId: ${requestId})`);
+    } else {
+      pending.reject(new Error(error || `Command failed: ${ackEvent}`));
+      logger.warn(`Command failed: ${ackEvent} (requestId: ${requestId}), error: ${error}`);
+    }
+  }
+
+  /**
+   * 获取连接的从机列表
+   */
+  getConnectedSlaves(): string[] {
+    return Array.from(this.slaveSockets.keys());
+  }
+
+  /**
+   * 检查从机是否已连接
+   */
+  isSlaveConnected(machineId: string): boolean {
+    const socket = this.slaveSockets.get(machineId);
+    return socket !== undefined && socket.connected;
   }
 
   /**

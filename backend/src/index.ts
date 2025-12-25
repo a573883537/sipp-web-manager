@@ -7,6 +7,7 @@ import { sippClient } from './services/sipp-client';
 import { sippProcessManager } from './services/sipp-process';
 import { slaveConnectionService } from './services/heartbeat';
 import { masterRegistryService } from './services/master-registry';
+import { slaveManager } from './services/slave-manager';
 import { WebSocketService } from './websocket';
 import { testConnection, initializeDatabase } from './database';
 import { taskHistoryRepository } from './database/task-history-repository';
@@ -51,6 +52,12 @@ class SippWebManagerApp {
 
       // 配置路由
       this.setupRoutes();
+
+      // 依赖注入：注入 WebSocketService 到 SlaveManager（主机模式）
+      if (config.node.role === 'master') {
+        slaveManager.setWebSocketService(this.wsService);
+        logger.info('WebSocketService injected into SlaveManager');
+      }
 
       // 连接SIPp
       this.connectToSipp();
@@ -363,7 +370,10 @@ class SippWebManagerApp {
    */
   private async start(): Promise<void> {
     return new Promise((resolve) => {
-      this.server.listen(config.server.port, '0.0.0.0', () => {
+      // 主机监听 0.0.0.0（允许外部访问），从机监听 127.0.0.1（仅本地访问）
+      const listenHost = config.node.role === 'master' ? '0.0.0.0' : '127.0.0.1';
+
+      this.server.listen(config.server.port, listenHost, () => {
         logger.info(`
 ╔═══════════════════════════════════════════════════════════╗
 ║                                                           ║
@@ -371,12 +381,12 @@ class SippWebManagerApp {
 ║                                                           ║
 ║  Environment:  ${config.server.env.padEnd(42)} ║
 ║  Node Role:    ${config.node.role.padEnd(42)} ║
-║  HTTP Server:  http://localhost:${config.server.port.toString().padEnd(29)} ║
-║  WebSocket:    ws://localhost:${config.server.port.toString().padEnd(31)} ║
+║  HTTP Server:  http://${listenHost}:${config.server.port.toString().padEnd(23)} ║
+║  WebSocket:    ws://${listenHost}:${config.server.port.toString().padEnd(25)} ║
 ║  SIPp Host:    ${config.sipp.host}:${config.sipp.controlPort.toString().padEnd(35)} ║
 ║                                                           ║
-║  API Docs:     http://localhost:${config.server.port}/api${' '.repeat(19)} ║
-║  Health:       http://localhost:${config.server.port}/health${' '.repeat(16)} ║
+║  API Docs:     http://${listenHost}:${config.server.port}/api${' '.repeat(13)} ║
+║  Health:       http://${listenHost}:${config.server.port}/health${' '.repeat(10)} ║
 ║                                                           ║
 ╚═══════════════════════════════════════════════════════════╝
         `);

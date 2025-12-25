@@ -4,6 +4,7 @@ import { query } from '../database';
 import { logger } from '../utils/logger';
 import * as fs from 'fs';
 import * as path from 'path';
+import type { WebSocketService } from '../websocket';
 
 /**
  * 从机信息
@@ -27,11 +28,20 @@ interface SlaveInfo {
  *
  * Kernel 风格设计：
  * - 数据驱动：基于 machines 表状态做决策
- * - 简单直接：HTTP + 超时 + 重试
+ * - WebSocket 优先：优先使用 WebSocket 通信，HTTP 作为降级
  * - 容错性：从机离线自动降级
  */
 export class SlaveManager {
   private readonly requestTimeout = 30000; // 30s
+  private wsService: WebSocketService | null = null;
+
+  /**
+   * 设置 WebSocket 服务（依赖注入）
+   */
+  setWebSocketService(wsService: WebSocketService): void {
+    this.wsService = wsService;
+    logger.info('WebSocketService injected into SlaveManager');
+  }
 
   /**
    * 查询所有可用从机（在线且非繁忙）
@@ -90,7 +100,7 @@ export class SlaveManager {
 
   /**
    * 在指定从机上启动测试
-   * 主动推送场景文件和注入文件内容到从机
+   * 优先使用 WebSocket，降级到 HTTP
    */
   async startTestOnSlave(
     machineId: string,
@@ -103,58 +113,68 @@ export class SlaveManager {
       throw new Error(`Slave not found: ${machineId}`);
     }
 
+    logger.info(`Starting test on slave ${machineId}: ${taskId}`);
+
+    // 读取场景文件内容
+    const scenarioPath = path.join(config.sipp.scenarioDir, scenarioFile);
+    const scenarioContent = await this.readFileIfExists(scenarioPath);
+
+    // 读取注入文件内容（如果有）
+    let injectionContent: string | undefined;
+    if (options.injectionFile) {
+      const injectionPath = path.join(config.sipp.injectionDir, options.injectionFile);
+      injectionContent = await this.readFileIfExists(injectionPath);
+    }
+
+    // 读取 oocsf 文件内容（如果有）
+    let oocsfContent: string | undefined;
+    if (options.oocsf) {
+      const oocsfPath = path.join(config.sipp.scenarioDir, options.oocsf);
+      oocsfContent = await this.readFileIfExists(oocsfPath);
+    }
+
+    // 读取注册场景文件内容（如果有）
+    let regScenarioContent: string | undefined;
+    if (options.regScenarioFile) {
+      const regScenarioPath = path.join(config.sipp.scenarioDir, options.regScenarioFile);
+      regScenarioContent = await this.readFileIfExists(regScenarioPath);
+    }
+
+    const payload = {
+      taskId,
+      scenarioFile,
+      scenarioContent,
+      injectionContent,
+      oocsfContent,
+      regScenarioContent,
+      ...options,
+    };
+
+    // 优先使用 WebSocket
+    if (this.wsService && this.wsService.isSlaveConnected(machineId)) {
+      try {
+        await this.wsService.sendCommandToSlave(machineId, 'task:start', payload, this.requestTimeout);
+        logger.info(`Test started on slave ${machineId} via WebSocket: ${taskId}`);
+        return;
+      } catch (error: any) {
+        logger.warn(`WebSocket command failed, falling back to HTTP: ${error.message}`);
+        // 降级到 HTTP
+      }
+    }
+
+    // 降级：使用 HTTP
     const url = `http://${slave.ipAddress}:${slave.apiPort}/api/sipp/start`;
-
     try {
-      logger.info(`Starting test on slave ${machineId}: ${taskId}`);
-
-      // 读取场景文件内容
-      const scenarioPath = path.join(config.sipp.scenarioDir, scenarioFile);
-      const scenarioContent = await this.readFileIfExists(scenarioPath);
-
-      // 读取注入文件内容（如果有）
-      let injectionContent: string | undefined;
-      if (options.injectionFile) {
-        const injectionPath = path.join(config.sipp.injectionDir, options.injectionFile);
-        injectionContent = await this.readFileIfExists(injectionPath);
-      }
-
-      // 读取 oocsf 文件内容（如果有）
-      let oocsfContent: string | undefined;
-      if (options.oocsf) {
-        const oocsfPath = path.join(config.sipp.scenarioDir, options.oocsf);
-        oocsfContent = await this.readFileIfExists(oocsfPath);
-      }
-
-      // 读取注册场景文件内容（如果有）
-      let regScenarioContent: string | undefined;
-      if (options.regScenarioFile) {
-        const regScenarioPath = path.join(config.sipp.scenarioDir, options.regScenarioFile);
-        regScenarioContent = await this.readFileIfExists(regScenarioPath);
-      }
-
-      const response = await axios.post(
-        url,
-        {
-          taskId,
-          scenarioFile,
-          scenarioContent, // 传递场景文件内容
-          injectionContent, // 传递注入文件内容
-          oocsfContent, // 传递 oocsf 文件内容
-          regScenarioContent, // 传递注册场景文件内容
-          ...options,
-        },
-        {
-          timeout: this.requestTimeout,
-          headers: { 'Content-Type': 'application/json' },
-        }
-      );
+      const response = await axios.post(url, payload, {
+        timeout: this.requestTimeout,
+        headers: { 'Content-Type': 'application/json' },
+      });
 
       if (!response.data?.success) {
         throw new Error(response.data?.error || 'Unknown error from slave');
       }
 
-      logger.info(`Test started on slave ${machineId}: ${taskId}`);
+      logger.info(`Test started on slave ${machineId} via HTTP (fallback): ${taskId}`);
     } catch (error: any) {
       this.handleSlaveError(machineId, error);
       throw new Error(`Failed to start test on slave ${machineId}: ${error.message}`);
@@ -180,6 +200,7 @@ export class SlaveManager {
 
   /**
    * 停止从机上的测试
+   * 优先使用 WebSocket，降级到 HTTP
    */
   async stopTestOnSlave(
     machineId: string,
@@ -191,14 +212,29 @@ export class SlaveManager {
       throw new Error(`Slave not found: ${machineId}`);
     }
 
+    logger.info(`Stopping test on slave ${machineId}: ${taskId} (force: ${force})`);
+
+    const payload = { taskId, force };
+
+    // 优先使用 WebSocket
+    if (this.wsService && this.wsService.isSlaveConnected(machineId)) {
+      try {
+        await this.wsService.sendCommandToSlave(machineId, 'task:stop', payload, this.requestTimeout);
+        logger.info(`Test stopped on slave ${machineId} via WebSocket: ${taskId}`);
+        return;
+      } catch (error: any) {
+        logger.warn(`WebSocket command failed, falling back to HTTP: ${error.message}`);
+        // 降级到 HTTP
+      }
+    }
+
+    // 降级：使用 HTTP
     const url = `http://${slave.ipAddress}:${slave.apiPort}/api/sipp/stop`;
 
     try {
-      logger.info(`Stopping test on slave ${machineId}: ${taskId} (force: ${force})`);
-
       const response = await axios.post(
         url,
-        { taskId, force },
+        payload,
         {
           timeout: this.requestTimeout,
           headers: { 'Content-Type': 'application/json' },
@@ -209,7 +245,7 @@ export class SlaveManager {
         throw new Error(response.data?.error || 'Unknown error from slave');
       }
 
-      logger.info(`Test stopped on slave ${machineId}: ${taskId}`);
+      logger.info(`Test stopped on slave ${machineId} via HTTP (fallback): ${taskId}`);
     } catch (error: any) {
       this.handleSlaveError(machineId, error);
       throw new Error(`Failed to stop test on slave ${machineId}: ${error.message}`);
@@ -218,6 +254,7 @@ export class SlaveManager {
 
   /**
    * 获取从机上的任务状态
+   * 优先使用 WebSocket，降级到 HTTP
    */
   async getTaskStatusFromSlave(machineId: string, taskId: string): Promise<any> {
     const slave = await this.getSlaveInfo(machineId);
@@ -225,6 +262,24 @@ export class SlaveManager {
       throw new Error(`Slave not found: ${machineId}`);
     }
 
+    // 优先使用 WebSocket
+    if (this.wsService && this.wsService.isSlaveConnected(machineId)) {
+      try {
+        const result = await this.wsService.sendCommandToSlave(
+          machineId,
+          'task:stats:request',
+          { taskId },
+          this.requestTimeout
+        );
+        logger.debug(`Task status retrieved from slave ${machineId} via WebSocket: ${taskId}`);
+        return result;
+      } catch (error: any) {
+        logger.warn(`WebSocket command failed, falling back to HTTP: ${error.message}`);
+        // 降级到 HTTP
+      }
+    }
+
+    // 降级：使用 HTTP
     const url = `http://${slave.ipAddress}:${slave.apiPort}/api/sipp/status/${taskId}`;
 
     try {
@@ -236,6 +291,7 @@ export class SlaveManager {
         throw new Error(response.data?.error || 'Unknown error from slave');
       }
 
+      logger.debug(`Task status retrieved from slave ${machineId} via HTTP (fallback): ${taskId}`);
       return response.data.data;
     } catch (error: any) {
       this.handleSlaveError(machineId, error);
