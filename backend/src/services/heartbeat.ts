@@ -3,34 +3,35 @@ import { logger } from '../utils/logger';
 import { sippProcessManager } from './sipp-process';
 import os from 'os';
 import { execSync } from 'child_process';
-import axios from 'axios';
+import { io, Socket } from 'socket.io-client';
 
 /**
- * 从机心跳服务
- * 职责：定期通过HTTP API向主机上报本机状态
+ * 从机心跳服务（WebSocket客户端）
+ * 职责：通过WebSocket长连接向主机上报本机状态
  *
  * Kernel 风格设计：
- * - 数据结构驱动：状态信息统一格式
- * - API通信：去除数据库依赖，仅通过主机API交互
- * - 自动恢复：网络故障自动重试，带指数退避（exponential backoff）
- * - 最小复杂度：仅 3 个方法（start/stop/report）
+ * - 数据结构驱动：心跳包统一JSON格式
+ * - WebSocket长连接：单一连接复用，消除TCP短连接问题
+ * - 自动恢复：网络故障自动重连，带指数退避（exponential backoff）
+ * - 最小复杂度：仅 3 个方法（start/stop/send）
  */
 export class HeartbeatService {
   private timer: NodeJS.Timeout | null = null;
   private readonly machineId = config.node.machineId;
   private readonly machineName = config.node.machineName;
   private readonly baseInterval = config.node.heartbeatInterval;
-  private readonly masterApiUrl: string;
-  private sippVersionCache: string | null = null; // 缓存SIPp版本
-  private lastCpuTimes: { idle: number; total: number } | null = null; // 上次CPU时间采样
+  private readonly masterWsUrl: string;
+  private socket: Socket | null = null;
+  private sippVersionCache: string | null = null;
+  private lastCpuTimes: { idle: number; total: number } | null = null;
 
   // 退避策略相关字段
-  private consecutiveFailures = 0; // 连续失败次数
-  private currentInterval = config.node.heartbeatInterval; // 当前重试间隔
+  private consecutiveFailures = 0;
+  private currentInterval = config.node.heartbeatInterval;
 
   constructor() {
-    // 构建主机API地址
-    this.masterApiUrl = `http://${config.node.masterHost}:${config.node.masterPort}/api`;
+    // 构建主机WebSocket地址
+    this.masterWsUrl = `http://${config.node.masterHost}:${config.node.masterPort}`;
   }
 
   /**
@@ -42,16 +43,43 @@ export class HeartbeatService {
       return;
     }
 
-    // 首次注册
-    this.register().catch(err => {
-      logger.error('Failed to register machine:', err);
+    // 创建WebSocket连接（单一长连接）
+    this.socket = io(this.masterWsUrl, {
+      reconnection: true,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      reconnectionAttempts: Infinity,
+      transports: ['websocket'],
+    });
+
+    // 监听连接成功事件
+    this.socket.on('connect', () => {
+      logger.info(`WebSocket connected to master: ${this.masterWsUrl}`);
+
+      // 连接成功后立即注册
+      this.register();
+
+      // 重置失败计数器
+      this.onHeartbeatSuccess();
+    });
+
+    // 监听断开事件
+    this.socket.on('disconnect', (reason) => {
+      logger.warn(`WebSocket disconnected: ${reason}`);
+      this.onHeartbeatFailure();
+    });
+
+    // 监听连接错误
+    this.socket.on('connect_error', (error) => {
+      logger.error('WebSocket connection error:', { error: error.message });
+      this.onHeartbeatFailure();
     });
 
     // 定期心跳（使用动态间隔）
     this.scheduleNextHeartbeat();
 
     logger.info(`Heartbeat service started: ${this.machineId} (base interval: ${this.baseInterval}ms)`);
-    logger.info(`Master API: ${this.masterApiUrl}`);
+    logger.info(`Master WebSocket URL: ${this.masterWsUrl}`);
     if (config.node.heartbeatBackoffEnabled) {
       logger.info(`Exponential backoff enabled (max interval: ${config.node.heartbeatMaxRetryInterval}ms)`);
     }
@@ -66,14 +94,9 @@ export class HeartbeatService {
     }
 
     this.timer = setTimeout(() => {
-      this.sendHeartbeat()
-        .catch(err => {
-          logger.error('Heartbeat failed:', err);
-        })
-        .finally(() => {
-          // 无论成功失败，都调度下次心跳
-          this.scheduleNextHeartbeat();
-        });
+      this.sendHeartbeat();
+      // 继续调度下次心跳
+      this.scheduleNextHeartbeat();
     }, this.currentInterval);
   }
 
@@ -86,18 +109,27 @@ export class HeartbeatService {
       this.timer = null;
     }
 
-    // 标记离线
-    this.setOffline().catch(err => {
-      logger.error('Failed to set offline:', err);
-    });
+    // 发送离线通知
+    this.setOffline();
+
+    // 关闭WebSocket连接
+    if (this.socket) {
+      this.socket.disconnect();
+      this.socket = null;
+    }
 
     logger.info('Heartbeat service stopped');
   }
 
   /**
-   * 注册从机（首次或重启）
+   * 注册从机（首次连接或重连）
    */
-  private async register(): Promise<void> {
+  private register(): void {
+    if (!this.socket || !this.socket.connected) {
+      logger.warn('Cannot register: WebSocket not connected');
+      return;
+    }
+
     try {
       const ip = this.getLocalIP();
 
@@ -114,37 +146,29 @@ export class HeartbeatService {
         role: 'slave' as const,
         sippVersion: this.sippVersionCache,
         status: 'online' as const,
-        lastHeartbeat: Date.now(),
       };
 
-      await axios.post(`${this.masterApiUrl}/machines/heartbeat`, payload, {
-        timeout: config.node.heartbeatTimeout,
-        headers: { 'Content-Type': 'application/json' },
-      });
+      this.socket.emit('slave:register', payload);
 
-      logger.info(`Machine registered: ${this.machineId} (${ip}:${config.server.port})`);
-
-      // 成功后重置失败计数器
-      this.onHeartbeatSuccess();
+      logger.info(`Machine registering via WebSocket: ${this.machineId} (${ip}:${config.server.port})`);
     } catch (error: any) {
-      const errorMsg = error.response?.data?.error || error.message || String(error);
-      logger.error('Failed to register machine:', { error: errorMsg, machineId: this.machineId });
-
-      // 失败后增加计数器
-      this.onHeartbeatFailure();
-
-      throw error;
+      logger.error('Failed to register machine:', { error: error.message, machineId: this.machineId });
     }
   }
 
   /**
    * 发送心跳（更新状态）
    */
-  private async sendHeartbeat(): Promise<void> {
+  private sendHeartbeat(): void {
+    if (!this.socket || !this.socket.connected) {
+      logger.debug('Skipping heartbeat: WebSocket not connected');
+      return;
+    }
+
     try {
       const stats = this.getSystemStats();
 
-      // 使用缓存的 SIPp 版本（首次获取后缓存）
+      // 使用缓存的 SIPp 版本
       if (this.sippVersionCache === null) {
         this.sippVersionCache = this.getSippVersion();
       }
@@ -159,26 +183,35 @@ export class HeartbeatService {
         cpuUsage: stats.cpu,
         memoryUsage: stats.memory,
         runningTasks,
-        lastHeartbeat: Date.now(),
       };
 
-      await axios.post(`${this.masterApiUrl}/machines/heartbeat`, payload, {
-        timeout: config.node.heartbeatTimeout,
-        headers: { 'Content-Type': 'application/json' },
-      });
+      this.socket.emit('slave:heartbeat', payload);
 
-      logger.debug(`Heartbeat sent: ${this.machineId} (CPU: ${stats.cpu}%, MEM: ${stats.memory}%, Tasks: ${runningTasks}, SIPp: ${this.sippVersionCache})`);
-
-      // 成功后重置失败计数器
-      this.onHeartbeatSuccess();
+      logger.debug(`Heartbeat sent via WebSocket: ${this.machineId} (CPU: ${stats.cpu}%, MEM: ${stats.memory}%, Tasks: ${runningTasks})`);
     } catch (error: any) {
-      const errorMsg = error.response?.data?.error || error.message || String(error);
-      logger.error('Failed to send heartbeat:', { error: errorMsg, machineId: this.machineId, url: this.masterApiUrl });
+      logger.error('Failed to send heartbeat:', { error: error.message, machineId: this.machineId });
+    }
+  }
 
-      // 失败后增加计数器
-      this.onHeartbeatFailure();
+  /**
+   * 标记离线
+   */
+  private setOffline(): void {
+    if (!this.socket) {
+      return;
+    }
 
-      // 不抛出异常，允许下次重试
+    try {
+      const payload = {
+        id: this.machineId,
+        status: 'offline' as const,
+      };
+
+      this.socket.emit('slave:offline', payload);
+
+      logger.info(`Machine marked as offline via WebSocket: ${this.machineId}`);
+    } catch (error: any) {
+      logger.error('Failed to set offline:', { error: error.message, machineId: this.machineId });
     }
   }
 
@@ -198,14 +231,12 @@ export class HeartbeatService {
    */
   private onHeartbeatFailure(): void {
     if (!config.node.heartbeatBackoffEnabled) {
-      // 退避功能禁用，保持原有间隔
       return;
     }
 
     this.consecutiveFailures++;
 
     // 指数退避公式：interval = baseInterval * 2^failures
-    // 但限制最大间隔为 heartbeatMaxRetryInterval
     const backoffInterval = Math.min(
       this.baseInterval * Math.pow(2, this.consecutiveFailures),
       config.node.heartbeatMaxRetryInterval
@@ -221,29 +252,6 @@ export class HeartbeatService {
   }
 
   /**
-   * 标记离线
-   */
-  private async setOffline(): Promise<void> {
-    try {
-      const payload = {
-        id: this.machineId,
-        status: 'offline' as const,
-        lastHeartbeat: Date.now(),
-      };
-
-      await axios.post(`${this.masterApiUrl}/machines/heartbeat`, payload, {
-        timeout: config.node.heartbeatTimeout,
-        headers: { 'Content-Type': 'application/json' },
-      });
-
-      logger.info(`Machine marked as offline: ${this.machineId}`);
-    } catch (error: any) {
-      const errorMsg = error.response?.data?.error || error.message || String(error);
-      logger.error('Failed to set offline:', { error: errorMsg, machineId: this.machineId });
-    }
-  }
-
-  /**
    * 获取系统统计信息
    */
   private getSystemStats(): { cpu: number; memory: number } {
@@ -254,14 +262,12 @@ export class HeartbeatService {
     // CPU 使用率计算（需要两次采样的差值）
     let cpuUsage = 0;
 
-    // 计算当前 CPU 时间
     const currentIdle = cpus.reduce((acc, cpu) => acc + cpu.times.idle, 0);
     const currentTotal = cpus.reduce((acc, cpu) => {
       return acc + Object.values(cpu.times).reduce((a, b) => a + b, 0);
     }, 0);
 
     if (this.lastCpuTimes) {
-      // 有上次采样数据，计算使用率
       const idleDiff = currentIdle - this.lastCpuTimes.idle;
       const totalDiff = currentTotal - this.lastCpuTimes.total;
 
@@ -269,14 +275,13 @@ export class HeartbeatService {
         cpuUsage = ((totalDiff - idleDiff) / totalDiff) * 100;
       }
     } else {
-      // 首次采样：等待100ms后再次采样以获取即时CPU使用率
+      // 首次采样：等待100ms后再次采样
       const sleepMs = 100;
       const start = Date.now();
       while (Date.now() - start < sleepMs) {
         // 短暂等待
       }
 
-      // 第二次采样
       const cpus2 = os.cpus();
       const idle2 = cpus2.reduce((acc, cpu) => acc + cpu.times.idle, 0);
       const total2 = cpus2.reduce((acc, cpu) => {
@@ -331,10 +336,8 @@ export class HeartbeatService {
         timeout: 3000,
       });
 
-      // 匹配格式: "SIPp v3.7.5-20-g66074c1-TLS-PCAP-SHA256"
       const match = output.match(/SIPp\s+v(\S+)/i);
       if (match) {
-        // 移除末尾的点号（如果有）
         return match[1].replace(/\.$/, '');
       }
       return 'unknown';

@@ -286,11 +286,15 @@ class SippWebManagerApp {
       next();
     });
 
-    // 静态文件（用于前端构建产物）
-    const frontendBuildPath = path.join(__dirname, '../../frontend/dist');
-    if (fs.existsSync(frontendBuildPath)) {
-      this.app.use(express.static(frontendBuildPath));
-      logger.info(`Serving frontend from: ${frontendBuildPath}`);
+    // 静态文件（用于前端构建产物）- 仅主机模式
+    if (config.node.role === 'master') {
+      const frontendBuildPath = path.join(__dirname, '../../frontend/dist');
+      if (fs.existsSync(frontendBuildPath)) {
+        this.app.use(express.static(frontendBuildPath));
+        logger.info(`Serving frontend from: ${frontendBuildPath}`);
+      }
+    } else {
+      logger.info('Frontend serving skipped: slave mode (API only)');
     }
   }
 

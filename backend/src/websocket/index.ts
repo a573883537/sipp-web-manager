@@ -51,6 +51,25 @@ export class WebSocketService {
         message: 'Connected to SIPp Web Manager',
       });
 
+      // === 从机连接处理（WebSocket长连接） ===
+
+      // 从机注册（首次连接）
+      socket.on('slave:register', async (data) => {
+        await this.handleSlaveRegister(socket, data);
+      });
+
+      // 从机心跳（定期发送）
+      socket.on('slave:heartbeat', async (data) => {
+        await this.handleSlaveHeartbeat(socket, data);
+      });
+
+      // 从机离线（主动断开）
+      socket.on('slave:offline', async (data) => {
+        await this.handleSlaveOffline(socket, data);
+      });
+
+      // === 前端连接处理 ===
+
       // 监听客户端命令
       socket.on('sipp:command', async (data) => {
         await this.handleSippCommand(socket, data);
@@ -71,6 +90,115 @@ export class WebSocketService {
         logger.error('Socket error:', error);
       });
     });
+  }
+
+  /**
+   * 处理从机注册
+   */
+  private async handleSlaveRegister(socket: Socket, data: any): Promise<void> {
+    try {
+      const { id, name, ipAddress, apiPort, role, sippVersion, status } = data;
+
+      logger.info(`Slave registering via WebSocket: ${id} (${ipAddress}:${apiPort})`);
+
+      // 检查从机是否已存在
+      const existing = await query<any>('SELECT id FROM machines WHERE id = ?', [id]);
+
+      if (existing.length > 0) {
+        // 已存在：更新信息
+        await query(
+          `UPDATE machines SET
+            name = ?,
+            ip_address = ?,
+            api_port = ?,
+            role = ?,
+            sipp_version = ?,
+            status = ?,
+            last_heartbeat = ?
+          WHERE id = ?`,
+          [name, ipAddress, apiPort, role, sippVersion, status, Date.now(), id]
+        );
+        logger.info(`Slave re-registered: ${id}`);
+      } else {
+        // 不存在：插入新记录
+        await query(
+          `INSERT INTO machines (id, name, ip_address, api_port, role, sipp_version, status, last_heartbeat, total_tasks)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+          [id, name, ipAddress, apiPort, role, sippVersion, status, Date.now()]
+        );
+        logger.info(`Slave registered: ${id}`);
+      }
+
+      // 同步更新 total_tasks
+      await query(
+        `UPDATE machines m
+         SET total_tasks = (
+           SELECT COUNT(*) FROM task_history
+           WHERE machine_id COLLATE utf8mb4_unicode_ci = m.id COLLATE utf8mb4_unicode_ci
+         )
+         WHERE m.id = ?`,
+        [id]
+      );
+
+      // 确认注册成功
+      socket.emit('slave:register:ack', { success: true, machineId: id });
+    } catch (error: any) {
+      logger.error('Failed to handle slave register:', error);
+      socket.emit('slave:register:ack', { success: false, error: error.message });
+    }
+  }
+
+  /**
+   * 处理从机心跳
+   */
+  private async handleSlaveHeartbeat(socket: Socket, data: any): Promise<void> {
+    try {
+      const { id, status, sippVersion, cpuUsage, memoryUsage, runningTasks } = data;
+
+      await query(
+        `UPDATE machines SET
+          status = ?,
+          sipp_version = ?,
+          cpu_usage = ?,
+          memory_usage = ?,
+          running_tasks = ?,
+          last_heartbeat = ?
+        WHERE id = ?`,
+        [status, sippVersion, cpuUsage, memoryUsage, runningTasks, Date.now(), id]
+      );
+
+      logger.debug(`Heartbeat received from slave: ${id} (CPU: ${cpuUsage}%, MEM: ${memoryUsage}%, Tasks: ${runningTasks})`);
+
+      // 确认心跳接收（可选）
+      socket.emit('slave:heartbeat:ack', { success: true });
+    } catch (error: any) {
+      logger.error('Failed to handle slave heartbeat:', error);
+    }
+  }
+
+  /**
+   * 处理从机离线
+   */
+  private async handleSlaveOffline(socket: Socket, data: any): Promise<void> {
+    try {
+      const { id, status } = data;
+
+      await query(
+        `UPDATE machines SET
+          status = ?,
+          running_tasks = 0,
+          last_heartbeat = ?
+        WHERE id = ?`,
+        [status, Date.now(), id]
+      );
+
+      logger.info(`Slave marked as offline: ${id}`);
+
+      // 确认离线通知
+      socket.emit('slave:offline:ack', { success: true });
+    } catch (error: any) {
+      logger.error('Failed to handle slave offline:', error);
+    }
   }
 
   /**
