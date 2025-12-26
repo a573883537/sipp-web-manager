@@ -587,6 +587,34 @@ const Machines: React.FC = () => {
   }, []);
 
   /**
+   * 处理机器状态更新（WebSocket 推送）
+   */
+  const handleMachineStatusUpdate = useCallback(
+    (data: {
+      id: string;
+      status: string;
+      cpuUsage: number;
+      memoryUsage: number;
+      runningTasks: number;
+    }) => {
+      setMachines((prevMachines) =>
+        prevMachines.map((machine) =>
+          machine.id === data.id
+            ? {
+                ...machine,
+                status: data.status as 'online' | 'offline' | 'busy',
+                cpuUsage: data.cpuUsage,
+                memoryUsage: data.memoryUsage,
+                runningTasks: data.runningTasks,
+              }
+            : machine
+        )
+      );
+    },
+    []
+  );
+
+  /**
    * 初始化加载
    */
   useEffect(() => {
@@ -596,16 +624,13 @@ const Machines: React.FC = () => {
     wsService.on('tasks:stats', handleTaskStatsUpdate);
     // 监听WebSocket任务暂停/恢复状态更新
     wsService.on('task:paused', handleTaskPausedUpdate);
-
-    // 自动刷新（每10秒）
-    const interval = setInterval(() => {
-      loadMachines();
-    }, 10000);
+    // 监听WebSocket机器状态更新
+    wsService.on('machines:status:update', handleMachineStatusUpdate);
 
     return () => {
       wsService.off('tasks:stats', handleTaskStatsUpdate);
       wsService.off('task:paused', handleTaskPausedUpdate);
-      clearInterval(interval);
+      wsService.off('machines:status:update', handleMachineStatusUpdate);
     };
   }, []);
 

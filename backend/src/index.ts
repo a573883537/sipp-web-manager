@@ -357,6 +357,9 @@ class SippWebManagerApp {
       // 启动任务统计数据推送（每3秒推送一次运行中任务的统计数据）
       this.wsService.startTaskStatsPolling(3000);
 
+      // 启动从机状态轮询（每10秒请求从机上报状态）
+      this.wsService.startSlaveStatusPolling(10000);
+
       // 启动定时统计查询（需要SIPp支持get stats json命令）
       // this.wsService.startStatsPolling(2000);
     } catch (error) {
@@ -372,6 +375,12 @@ class SippWebManagerApp {
     return new Promise((resolve) => {
       // 主机监听 0.0.0.0（允许外部访问），从机监听 127.0.0.1（仅本地访问）
       const listenHost = config.node.role === 'master' ? '0.0.0.0' : '127.0.0.1';
+
+      // 优化 HTTP Keep-Alive（连接复用）
+      // keepAliveTimeout: 65秒（比浏览器默认60秒略长，确保服务端不会提前关闭）
+      // headersTimeout: 必须 > keepAliveTimeout，避免请求头超时导致连接异常
+      this.server.keepAliveTimeout = 65000;
+      this.server.headersTimeout = 66000;
 
       this.server.listen(config.server.port, listenHost, () => {
         logger.info(`

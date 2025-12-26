@@ -20,8 +20,9 @@ import FormData from 'form-data';
 export class WebSocketService {
   private io: SocketIOServer;
   private csvParser: CsvParser | null = null;
-  private statsInterval: NodeJS.Timeout | null = null;
-  private taskStatsInterval: NodeJS.Timeout | null = null;
+  private statsInterval: any = null;
+  private taskStatsInterval: any = null;
+  private slaveStatusInterval: any = null;  // 从机状态轮询定时器
 
   // 从机 WebSocket 连接映射（machineId -> socket）
   private slaveSockets: Map<string, Socket> = new Map();
@@ -201,6 +202,16 @@ export class WebSocketService {
       );
 
       logger.debug(`Heartbeat received from slave: ${id} (CPU: ${cpuUsage}%, MEM: ${memoryUsage}%, Tasks: ${runningTasks})`);
+
+      // 广播机器状态更新给所有前端客户端
+      this.broadcast('machines:status:update', {
+        id,
+        status,
+        cpuUsage,
+        memoryUsage,
+        runningTasks,
+        timestamp: Date.now(),
+      });
 
       // 确认心跳接收（可选）
       socket.emit('slave:heartbeat:ack', { success: true });
@@ -619,18 +630,18 @@ export class WebSocketService {
                 const parser = new CsvParser({ filePath: csvPath, watchMode: false });
                 stats = await parser.getLatest();
               } else {
-                // 远程任务：通过 HTTP API 获取
+                // 远程任务：通过 WebSocket 获取
                 try {
-                  // 从数据库查找机器信息
-                  const machines = await query('SELECT * FROM machines WHERE id = ?', [task.machine_id]);
-                  if (machines.length > 0) {
-                    const machine = machines[0] as any;
-                    const slaveUrl = `http://${machine.ip_address}:${machine.api_port}/api/sipp/stats/${task.id}`;
-
-                    const response = await axios.get(slaveUrl, { timeout: 3000 });
-                    if (response.data.success && response.data.stats) {
-                      stats = response.data.stats;
-                    }
+                  if (this.isSlaveConnected(task.machine_id)) {
+                    const result = await this.sendCommandToSlave(
+                      task.machine_id,
+                      'task:stats:request',
+                      { taskId: task.id },
+                      3000
+                    );
+                    stats = result.stats;
+                  } else {
+                    logger.debug(`Slave ${task.machine_id} not connected, skipping stats for task ${task.id}`);
                   }
                 } catch (remoteError: any) {
                   logger.debug(`Failed to get remote stats for task ${task.id} on ${task.machine_id}:`, remoteError.message);
@@ -686,6 +697,44 @@ export class WebSocketService {
       clearInterval(this.taskStatsInterval);
       this.taskStatsInterval = null;
       logger.info('Stopped task stats polling');
+    }
+  }
+
+  /**
+   * 启动从机状态轮询
+   * 定期请求所有连接的从机上报状态（CPU、内存、运行任务数等）
+   */
+  startSlaveStatusPolling(interval: number = 10000): void {
+    if (config.node.role !== 'master') {
+      return;
+    }
+
+    if (this.slaveStatusInterval) {
+      logger.warn('Slave status polling already running');
+      return;
+    }
+
+    this.slaveStatusInterval = setInterval(() => {
+      // 向所有连接的从机发送状态请求
+      this.slaveSockets.forEach((socket, machineId) => {
+        if (socket.connected) {
+          socket.emit('status:request');
+          logger.debug(`Requested status update from slave: ${machineId}`);
+        }
+      });
+    }, interval);
+
+    logger.info(`Started slave status polling with interval: ${interval}ms`);
+  }
+
+  /**
+   * 停止从机状态轮询
+   */
+  stopSlaveStatusPolling(): void {
+    if (this.slaveStatusInterval) {
+      clearInterval(this.slaveStatusInterval);
+      this.slaveStatusInterval = null;
+      logger.info('Stopped slave status polling');
     }
   }
 
