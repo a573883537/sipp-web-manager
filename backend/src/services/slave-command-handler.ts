@@ -2,6 +2,7 @@ import { Socket } from 'socket.io-client';
 import { logger } from '../utils/logger';
 import { sippProcessManager } from './sipp-process';
 import { config } from '../config';
+import { CsvParser } from '../parsers/csv-parser';
 import fs from 'fs';
 import path from 'path';
 
@@ -177,25 +178,27 @@ export class SlaveCommandHandler {
     try {
       logger.debug(`Received task:stats:request: ${taskId}`, { requestId });
 
-      // 获取任务统计（从 CSV 文件读取）
+      // 使用 CsvParser 读取任务统计（正确的字段映射）
       const csvPath = path.join(config.sipp.logDir, `${taskId}_stats.csv`);
 
       if (!fs.existsSync(csvPath)) {
         throw new Error(`Stats file not found: ${csvPath}`);
       }
 
-      // 简单实现：读取 CSV 文件最后一行
-      const content = fs.readFileSync(csvPath, 'utf-8');
-      const lines = content.trim().split('\n');
-      const lastLine = lines[lines.length - 1];
-      const values = lastLine.split(';');
+      // 使用 CsvParser 解析（自动处理列名映射）
+      const parser = new CsvParser({ filePath: csvPath, watchMode: false });
+      const latestStats = await parser.getLatest();
 
-      // CSV 格式：StartTime;LastResetTime;CurrentTime;ElapsedTime;CallRate;IncomingCall;OutgoingCall;...
+      if (!latestStats) {
+        throw new Error(`No stats available in CSV: ${csvPath}`);
+      }
+
+      // 直接使用 CsvParser 返回的正确字段
       const stats = {
-        totalCalls: parseInt(values[6] || '0', 10) + parseInt(values[7] || '0', 10),
-        successCalls: parseInt(values[10] || '0', 10),
-        failedCalls: parseInt(values[11] || '0', 10),
-        callRate: parseFloat(values[4] || '0'),
+        totalCalls: latestStats.totalCalls,
+        successCalls: latestStats.successCalls,
+        failedCalls: latestStats.failedCalls,
+        callRate: latestStats.callRate,
       };
 
       // 发送统计响应
