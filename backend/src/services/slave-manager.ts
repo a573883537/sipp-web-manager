@@ -1,8 +1,6 @@
 import { config } from '../config';
 import { query } from '../database';
 import { logger } from '../utils/logger';
-import * as fs from 'fs';
-import * as path from 'path';
 import type { WebSocketService } from '../websocket';
 
 /**
@@ -143,23 +141,6 @@ export class SlaveManager {
     } catch (error: any) {
       logger.error(`Failed to start test on slave ${machineId} via WebSocket: ${error.message}`);
       throw error;
-    }
-  }
-
-  /**
-   * 读取文件内容（如果存在）
-   */
-  private async readFileIfExists(filePath: string): Promise<string | undefined> {
-    try {
-      if (fs.existsSync(filePath)) {
-        return fs.readFileSync(filePath, 'utf-8');
-      } else {
-        logger.warn(`File not found: ${filePath}`);
-        return undefined;
-      }
-    } catch (error: any) {
-      logger.error(`Failed to read file ${filePath}: ${error.message || String(error)}`);
-      return undefined;
     }
   }
 
