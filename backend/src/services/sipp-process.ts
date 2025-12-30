@@ -334,9 +334,9 @@ class SippProcessInstance extends EventEmitter {
         tlsCertPath = options.tlsCert;
         tlsKeyPath = options.tlsKey;
       } else {
-        // 使用默认路径
-        tlsCertPath = path.resolve(__dirname, '../../certs/sipp.crt');
-        tlsKeyPath = path.resolve(__dirname, '../../certs/sipp.key');
+        // 使用默认路径（项目根目录）
+        tlsCertPath = path.resolve(__dirname, '../../../certs/sipp.crt');
+        tlsKeyPath = path.resolve(__dirname, '../../../certs/sipp.key');
       }
 
       // 验证证书文件存在

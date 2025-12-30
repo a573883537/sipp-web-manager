@@ -15,7 +15,17 @@ class ApiService {
       timeout: 30000,
       headers: {
         'Content-Type': 'application/json',
+        // 启用 HTTP Keep-Alive，支持连接复用
+        'Connection': 'keep-alive',
       },
+      // 在浏览器环境中，axios 会自动使用浏览器的连接池
+      // 浏览器默认支持 HTTP/1.1 Keep-Alive
+      // 额外配置：禁用代理以减少延迟
+      proxy: false,
+      // 支持连接复用的选项
+      maxRedirects: 5,
+      // 启用自动解压（减少传输时间）
+      decompress: true,
     });
 
     this.setupInterceptors();

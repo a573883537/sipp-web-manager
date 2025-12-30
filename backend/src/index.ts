@@ -11,6 +11,7 @@ import { slaveManager } from './services/slave-manager';
 import { WebSocketService } from './websocket';
 import { testConnection, initializeDatabase } from './database';
 import { taskHistoryRepository } from './database/task-history-repository';
+import { fileRestoreService } from './services/file-restore-service';
 import apiRouter from './api/routes';
 import path from 'path';
 import fs from 'fs';
@@ -96,6 +97,9 @@ class SippWebManagerApp {
       await initializeDatabase();
       logger.info('Database initialized successfully');
 
+      // 从数据库恢复场景文件和注入文件到文件系统
+      await this.restoreFilesFromDatabase();
+
       // 清理启动前残留的运行中任务
       await this.cleanupResidualTasks();
     } catch (error: any) {
@@ -108,6 +112,27 @@ class SippWebManagerApp {
       } else {
         logger.warn('Continuing without database in development mode');
       }
+    }
+  }
+
+  /**
+   * 从数据库恢复文件到文件系统
+   * 
+   * 设计原则：
+   * - 服务重启时自动恢复：确保场景文件和注入文件与数据库保持同步
+   * - 智能跳过：如果文件已存在且比数据库更新，则跳过（避免覆盖手动修改）
+   * - 容错性：恢复失败不影响服务启动
+   */
+  private async restoreFilesFromDatabase(): Promise<void> {
+    try {
+      logger.info('Restoring files from database to filesystem...');
+      await fileRestoreService.restoreAllFiles();
+      logger.info('File restoration completed');
+    } catch (error: any) {
+      // 文件恢复失败不应阻止服务启动
+      logger.warn('File restoration failed, service will continue:', {
+        error: error.message || String(error),
+      });
     }
   }
 
@@ -376,11 +401,22 @@ class SippWebManagerApp {
       // 主机监听 0.0.0.0（允许外部访问），从机监听 127.0.0.1（仅本地访问）
       const listenHost = config.node.role === 'master' ? '0.0.0.0' : '127.0.0.1';
 
-      // 优化 HTTP Keep-Alive（连接复用）
-      // keepAliveTimeout: 65秒（比浏览器默认60秒略长，确保服务端不会提前关闭）
+      // 优化 HTTP Keep-Alive（连接复用，防止过短的 TCP 短连接）
+      // keepAliveTimeout: 65秒（比浏览器/Nginx 默认略长，确保服务端不会提前关闭）
       // headersTimeout: 必须 > keepAliveTimeout，避免请求头超时导致连接异常
-      this.server.keepAliveTimeout = 65000;
-      this.server.headersTimeout = 66000;
+      // maxHeadersCount: 增加最大请求头数量，避免连接被提前关闭
+      this.server.keepAliveTimeout = 65000; // 65秒 Keep-Alive 超时
+      this.server.headersTimeout = 66000;   // 66秒请求头超时
+      this.server.maxHeadersCount = 2000;   // 增加到2000（默认1000）
+      
+      // 设置最大连接数（默认无限制），根据实际需求调整
+      // this.server.maxConnections = 1000;
+      
+      logger.info('HTTP Keep-Alive optimized', {
+        keepAliveTimeout: this.server.keepAliveTimeout,
+        headersTimeout: this.server.headersTimeout,
+        maxHeadersCount: this.server.maxHeadersCount,
+      });
 
       this.server.listen(config.server.port, listenHost, () => {
         logger.info(`

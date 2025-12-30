@@ -210,9 +210,10 @@ DB_POOL_SIZE=10
 # 日志级别
 LOG_LEVEL=info
 
-# 场景和注入文件目录
-SCENARIO_DIR=./scenarios
-INJECTION_DIR=./injection_files
+# 文件目录（项目根目录）
+SIPP_SCENARIO_DIR=../scenarios
+SIPP_INJECTION_DIR=../injections
+SIPP_LOG_DIR=../logs
 EOF
     print_success "主机配置文件已创建: backend/.env"
 
@@ -278,9 +279,10 @@ DB_POOL_SIZE=5
 # 日志级别
 LOG_LEVEL=info
 
-# 场景和注入文件目录
-SCENARIO_DIR=./scenarios
-INJECTION_DIR=./injection_files
+# 文件目录（项目根目录）
+SIPP_SCENARIO_DIR=../scenarios
+SIPP_INJECTION_DIR=../injections
+SIPP_LOG_DIR=../logs
 EOF
     print_success "从机配置文件已创建: backend/.env"
 fi
@@ -289,9 +291,10 @@ fi
 # 6. 创建必要目录
 # ============================================
 print_step "创建工作目录..."
-mkdir -p backend/scenarios
-mkdir -p backend/injection_files
-mkdir -p backend/logs
+mkdir -p scenarios
+mkdir -p injections
+mkdir -p logs
+mkdir -p certs
 print_success "工作目录创建完成"
 
 # ============================================
@@ -401,8 +404,10 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo "📂 文件位置："
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  配置文件: backend/.env"
-echo "  日志目录: backend/logs/"
-echo "  场景目录: backend/scenarios/"
+echo "  日志目录: logs/"
+echo "  场景目录: scenarios/"
+echo "  注入目录: injections/"
+echo "  证书目录: certs/"
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "🔧 服务管理命令："

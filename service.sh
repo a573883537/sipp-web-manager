@@ -35,8 +35,9 @@ print_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
 # ============================================
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKEND_DIR="$SCRIPT_DIR/backend"
+LOGS_DIR="$SCRIPT_DIR/logs"
 PID_FILE="$BACKEND_DIR/.service.pid"
-LOG_FILE="$BACKEND_DIR/logs/app.log"
+LOG_FILE="$LOGS_DIR/app.log"
 ENV_FILE="$BACKEND_DIR/.env"
 
 # 服务名称（自动从 .env 读取角色）
@@ -113,6 +114,12 @@ start_service() {
         exit 1
     fi
 
+    # 确保日志目录存在
+    if [[ ! -d "$LOGS_DIR" ]]; then
+        print_info "创建日志目录: $LOGS_DIR"
+        mkdir -p "$LOGS_DIR"
+    fi
+
     cd "$BACKEND_DIR"
 
     # 优先使用 PM2（生产环境推荐）
@@ -125,8 +132,8 @@ start_service() {
         # 启动服务
         pm2 start dist/index.js \
             --name "$SERVICE_NAME" \
-            --log "$BACKEND_DIR/logs/pm2.log" \
-            --error "$BACKEND_DIR/logs/pm2-error.log" \
+            --log "$LOGS_DIR/pm2.log" \
+            --error "$LOGS_DIR/pm2-error.log" \
             --time
 
         # 保存 PM2 配置（用于开机自启）

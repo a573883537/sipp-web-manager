@@ -17,6 +17,21 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:3000',
         changeOrigin: true,
+        // 优化开发环境 HTTP 连接（Vite 使用 http-proxy 中间件）
+        // 启用 Keep-Alive 连接复用，减少 TCP 连接开销
+        configure: (proxy, _options) => {
+          proxy.on('proxyReq', (proxyReq, req, _res) => {
+            // 启用 HTTP Keep-Alive
+            proxyReq.setHeader('Connection', 'keep-alive');
+            // 设置 Keep-Alive 参数：timeout=65s, max=1000
+            proxyReq.setHeader('Keep-Alive', 'timeout=65, max=1000');
+          });
+          
+          // 监听代理错误（用于调试）
+          proxy.on('error', (err, _req, _res) => {
+            console.error('[Vite Proxy Error]', err);
+          });
+        },
       },
     },
   },
