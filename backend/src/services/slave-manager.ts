@@ -127,39 +127,11 @@ export class SlaveManager {
       );
     }
 
-    // 读取场景文件内容
-    const scenarioPath = path.join(config.sipp.scenarioDir, scenarioFile);
-    const scenarioContent = await this.readFileIfExists(scenarioPath);
-
-    // 读取注入文件内容（如果有）
-    let injectionContent: string | undefined;
-    if (options.injectionFile) {
-      const injectionPath = path.join(config.sipp.injectionDir, options.injectionFile);
-      injectionContent = await this.readFileIfExists(injectionPath);
-    }
-
-    // 读取 oocsf 文件内容（如果有）
-    let oocsfContent: string | undefined;
-    if (options.oocsf) {
-      const oocsfPath = path.join(config.sipp.scenarioDir, options.oocsf);
-      oocsfContent = await this.readFileIfExists(oocsfPath);
-    }
-
-    // 读取注册场景文件内容（如果有）
-    let regScenarioContent: string | undefined;
-    if (options.regScenarioFile) {
-      const regScenarioPath = path.join(config.sipp.scenarioDir, options.regScenarioFile);
-      regScenarioContent = await this.readFileIfExists(regScenarioPath);
-    }
-
+    // 不推送文件内容，让从机按需从数据库拉取
     const payload = {
       taskId,
       config: {
         scenarioFile,
-        scenarioContent,
-        injectionContent,
-        oocsfContent,
-        regScenarioContent,
         ...options,
       },
     };

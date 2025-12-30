@@ -70,10 +70,49 @@ export class SlaveCommandHandler {
       logger.info(`Received task:start command: ${taskId}`, { requestId });
 
       // 从config中提取scenarioFile和其他选项
-      const { scenarioFile, ...options } = taskConfig;
+      const {
+        scenarioFile,
+        injectionFile,
+        oocsf,
+        regScenarioFile,
+        certId,
+        ...options
+      } = taskConfig;
+
+      // 按需从数据库恢复场景文件（如果本地不存在）
+      await this.ensureFileExists(scenarioFile, 'scenario');
+
+      // 按需恢复注入文件
+      if (injectionFile) {
+        await this.ensureFileExists(injectionFile, 'injection');
+      }
+
+      // 按需恢复 OOCSF 文件
+      if (oocsf) {
+        await this.ensureFileExists(oocsf, 'scenario');
+      }
+
+      // 按需恢复注册场景文件
+      if (regScenarioFile) {
+        await this.ensureFileExists(regScenarioFile, 'scenario');
+      }
+
+      // 按需恢复 TLS 证书
+      if (certId) {
+        await this.ensureCertificateExists(certId);
+      }
+
+      // 重新构建完整选项
+      const fullOptions = {
+        ...options,
+        injectionFile,
+        oocsf,
+        regScenarioFile,
+        certId,
+      };
 
       // 启动 SIPp 进程
-      await sippProcessManager.start(taskId, scenarioFile, options);
+      await sippProcessManager.start(taskId, scenarioFile, fullOptions);
 
       // 获取进程状态（包含pid）
       const status = sippProcessManager.getStatus(taskId);
@@ -98,6 +137,64 @@ export class SlaveCommandHandler {
         taskId,
         error: error.message || String(error),
       });
+    }
+  }
+
+  /**
+   * 确保文件存在（按需从数据库恢复）
+   */
+  private async ensureFileExists(filename: string, fileType: 'scenario' | 'injection'): Promise<void> {
+    const targetDir = fileType === 'scenario' ? config.sipp.scenarioDir : config.sipp.injectionDir;
+    const filePath = path.join(targetDir, filename);
+
+    // 检查文件是否已存在
+    if (fs.existsSync(filePath)) {
+      logger.debug(`File already exists: ${filePath}`);
+      return;
+    }
+
+    // 文件不存在，从数据库恢复
+    logger.info(`File not found locally, restoring from database: ${filename}`);
+
+    try {
+      const { fileRestoreService } = await import('./file-restore-service');
+      
+      let success: boolean;
+      if (fileType === 'scenario') {
+        success = await fileRestoreService.restoreScenarioFile(filename);
+      } else {
+        success = await fileRestoreService.restoreInjectionFile(filename);
+      }
+
+      if (!success) {
+        throw new Error(`Failed to restore ${fileType} file from database: ${filename}`);
+      }
+
+      logger.info(`Successfully restored ${fileType} file from database: ${filename}`);
+    } catch (error: any) {
+      logger.error(`Failed to restore ${fileType} file ${filename}:`, error);
+      throw new Error(`Cannot restore ${fileType} file ${filename}: ${error.message}`);
+    }
+  }
+
+  /**
+   * 确保 TLS 证书存在（按需从数据库恢复）
+   */
+  private async ensureCertificateExists(certId: string): Promise<void> {
+    try {
+      const { fileRestoreService } = await import('./file-restore-service');
+      
+      // 先尝试恢复证书（如果已存在会跳过）
+      const success = await fileRestoreService.restoreTlsCertificate(certId);
+      
+      if (!success) {
+        logger.warn(`Failed to restore TLS certificate ${certId}, will try to use it anyway`);
+      } else {
+        logger.info(`Successfully ensured TLS certificate exists: ${certId}`);
+      }
+    } catch (error: any) {
+      logger.error(`Failed to ensure TLS certificate ${certId}:`, error);
+      throw new Error(`Cannot restore TLS certificate ${certId}: ${error.message}`);
     }
   }
 
