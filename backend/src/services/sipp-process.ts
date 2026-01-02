@@ -563,10 +563,42 @@ export class SippProcessManager extends EventEmitter {
   private processes: Map<string, SippProcessInstance> = new Map();
   private sippPath: string;
   private nextControlPort: number = 8888;  // 控制端口起始值
+  private cleanupTimer: NodeJS.Timeout | null = null;  // 定期清理定时器
 
   constructor(sippPath: string = process.env.SIPP_PATH || 'sipp') {
     super();
     this.sippPath = sippPath;
+    logger.info('SippProcessManager initialized', { sippPath });
+    
+    // 启动定期清理（每5分钟清理一次已完成的任务）
+    this.startPeriodicCleanup();
+  }
+  
+  /**
+   * 启动定期清理任务
+   */
+  private startPeriodicCleanup(): void {
+    const intervalMs = 5 * 60 * 1000; // 5分钟
+    this.cleanupTimer = setInterval(() => {
+      try {
+        this.cleanup();
+      } catch (error: any) {
+        logger.error('Periodic cleanup failed:', error);
+      }
+    }, intervalMs);
+    
+    logger.info('Periodic cleanup started', { intervalMs });
+  }
+  
+  /**
+   * 停止定期清理任务
+   */
+  stopPeriodicCleanup(): void {
+    if (this.cleanupTimer) {
+      clearInterval(this.cleanupTimer);
+      this.cleanupTimer = null;
+      logger.info('Periodic cleanup stopped');
+    }
   }
 
   /**
@@ -668,7 +700,14 @@ export class SippProcessManager extends EventEmitter {
     }
 
     await processInstance.stop(force);
+    
+    // 移除所有事件监听器，防止内存泄漏
+    processInstance.removeAllListeners();
+    
+    // 从进程列表中删除
     this.processes.delete(taskId);
+    
+    logger.debug(`Cleaned up task ${taskId} from process manager`);
   }
 
   /**
@@ -725,7 +764,24 @@ export class SippProcessManager extends EventEmitter {
         toDelete.push(taskId);
       }
     });
-    toDelete.forEach(taskId => this.processes.delete(taskId));
+    
+    // 清理每个已完成的任务
+    toDelete.forEach(taskId => {
+      const instance = this.processes.get(taskId);
+      if (instance) {
+        // 移除所有事件监听器
+        instance.removeAllListeners();
+        logger.debug(`Cleaned up completed task ${taskId}`);
+      }
+      this.processes.delete(taskId);
+    });
+    
+    if (toDelete.length > 0) {
+      logger.info(`Cleaned up ${toDelete.length} completed task(s)`, {
+        tasks: toDelete,
+        remainingTasks: this.processes.size,
+      });
+    }
   }
 
   /**
