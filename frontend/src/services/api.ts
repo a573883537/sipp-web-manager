@@ -186,6 +186,7 @@ class ApiService {
     remoteHost?: string;
     remotePort?: number;
     localPort?: number;
+    controlPort?: number; // SIPp控制端口（默认：8888）
     transport?: string;
     timeout?: number;
     injectionFile?: string; // 注入文件支持

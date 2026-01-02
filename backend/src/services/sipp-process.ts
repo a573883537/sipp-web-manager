@@ -150,8 +150,9 @@ class SippProcessInstance extends EventEmitter {
       remoteHost = '127.0.0.1',
       remotePort = 5060,
       localPort = 5061,
+      controlPort,  // 从前端传入，不再自动分配
       transport = 'udp',
-      statsInterval = 1,
+      statsInterval = 5,
       timeout = 60000,
       minRtpPort,
       maxRtpPort,
@@ -160,6 +161,11 @@ class SippProcessInstance extends EventEmitter {
       oocsf,
       autoAnswer = false,
     } = options;
+
+    // 如果前端传入了 controlPort，使用它；否则使用实例的 controlPort
+    if (controlPort) {
+      this.controlPort = controlPort;
+    }
 
     // 初始化状态
     this.currentRate = rate;
@@ -562,7 +568,6 @@ class SippProcessInstance extends EventEmitter {
 export class SippProcessManager extends EventEmitter {
   private processes: Map<string, SippProcessInstance> = new Map();
   private sippPath: string;
-  private nextControlPort: number = 8888;  // 控制端口起始值
   private cleanupTimer: NodeJS.Timeout | null = null;  // 定期清理定时器
 
   constructor(sippPath: string = process.env.SIPP_PATH || 'sipp') {
@@ -599,18 +604,6 @@ export class SippProcessManager extends EventEmitter {
       this.cleanupTimer = null;
       logger.info('Periodic cleanup stopped');
     }
-  }
-
-  /**
-   * 分配控制端口
-   */
-  private allocateControlPort(): number {
-    const port = this.nextControlPort;
-    this.nextControlPort++;
-    if (this.nextControlPort > 9999) {
-      this.nextControlPort = 8888;  // 循环使用
-    }
-    return port;
   }
 
   /**
@@ -668,8 +661,8 @@ export class SippProcessManager extends EventEmitter {
       this.processes.delete(taskId);
     }
 
-    // 分配控制端口
-    const controlPort = this.allocateControlPort();
+    // 从 options 获取 controlPort，如果没有提供则使用默认值 8888
+    const controlPort = options.controlPort || 8888;
 
     // 创建新的进程实例
     const processInstance = new SippProcessInstance(taskId, this.sippPath, controlPort);
@@ -859,6 +852,7 @@ export interface SippStartOptions {
   remoteHost?: string;     // 远程SIP服务器地址
   remotePort?: number;     // 远程SIP服务器端口
   localPort?: number;      // 本地SIP信令端口
+  controlPort?: number;    // SIPp控制端口（UDP，用于动态控制速率等，默认：8888）
   transport?: 'udp' | 'tcp' | 'tls'; // 传输协议
   statsInterval?: number;  // 统计采样间隔（秒）
   timeout?: number;        // 测试超时（毫秒）

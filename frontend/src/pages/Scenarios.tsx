@@ -785,7 +785,7 @@ const Scenarios: React.FC = () => {
             <span style={{ fontWeight: 'bold' }}>{"配置模板"}:</span>
             <Select
               style={{ width: 200 }}
-              placeholder={"选择注入文件"}
+              placeholder={"选择配置模板"}
               value={currentTemplateId}
               onChange={applyTemplate}
               allowClear
@@ -818,6 +818,7 @@ const Scenarios: React.FC = () => {
             remoteHost: import.meta.env.VITE_DEFAULT_REMOTE_HOST || '127.0.0.1',
             remotePort: parseInt(import.meta.env.VITE_DEFAULT_REMOTE_PORT || '5060'),
             localPort: parseInt(import.meta.env.VITE_DEFAULT_LOCAL_PORT || '5061'),
+            controlPort: 8888, // SIPp控制端口默认值
             rate: 1,
             users: 10,
             limit: 10,
@@ -907,6 +908,18 @@ const Scenarios: React.FC = () => {
                         <InputNumber min={1} max={65535} placeholder="5070" style={{ width: '100%' }} />
                       </Form.Item>
 
+                      <Form.Item
+                        name="controlPort"
+                        label={"控制端口"}
+                        tooltip="SIPp UDP控制端口，用于动态控制测试参数"
+                        rules={[{ required: true, message: "请输入控制端口" }]}
+                        style={{ flex: 1 }}
+                      >
+                        <InputNumber min={1} max={65535} placeholder="8888" style={{ width: '100%' }} />
+                      </Form.Item>
+                    </Space>
+
+                    <Space style={{ width: '100%' }} size="large">
                       <Form.Item
                         name="transport"
                         label={"传输协议"}

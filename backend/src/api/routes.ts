@@ -123,6 +123,7 @@ apiRouter.post('/sipp/start', async (req: Request, res: Response): Promise<void>
     remoteHost = '127.0.0.1',
     remotePort = 5060,
     localPort = 5061,
+    controlPort = 8888, // SIPp控制端口，默认8888
     transport = 'udp',
     timeout = 60000,
     injectionFile,
@@ -206,6 +207,7 @@ apiRouter.post('/sipp/start', async (req: Request, res: Response): Promise<void>
       remoteHost,
       remotePort,
       localPort,
+      controlPort,
       transport,
       timeout,
       injectionFile,
