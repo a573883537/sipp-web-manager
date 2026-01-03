@@ -389,7 +389,7 @@ export class FileRestoreService {
   }
 
   /**
-   * 恢复单个 TLS 证书
+   * 恢复单个 TLS 证书（带版本检查）
    */
   async restoreTlsCertificate(certId: string): Promise<boolean> {
     try {
@@ -405,10 +405,35 @@ export class FileRestoreService {
       const certPath = path.join(certsDir, `${safeName}.crt`);
       const keyPath = path.join(certsDir, `${safeName}.key`);
 
-      await fs.writeFile(certPath, cert.cert_content, { mode: 0o644 });
-      await fs.writeFile(keyPath, cert.key_content, { mode: 0o600 });
+      // 检查文件是否已存在并比较版本
+      let shouldRestore = true;
 
-      logger.info(`Restored TLS certificate: ${safeName}`, { certId });
+      if (fsSync.existsSync(certPath) && fsSync.existsSync(keyPath)) {
+        const certStat = await fs.stat(certPath);
+        const fileModTime = certStat.mtime;
+        const dbModTime = new Date(cert.updated_at);
+
+        // 如果本地文件比数据库更新或相同，跳过
+        if (fileModTime >= dbModTime) {
+          logger.debug(`TLS certificate files are up-to-date: ${safeName}`, {
+            fileModTime: fileModTime.toISOString(),
+            dbModTime: dbModTime.toISOString(),
+          });
+          shouldRestore = false;
+        } else {
+          logger.info(`TLS certificate outdated, refreshing: ${safeName}`, {
+            fileModTime: fileModTime.toISOString(),
+            dbModTime: dbModTime.toISOString(),
+          });
+        }
+      }
+
+      if (shouldRestore) {
+        await fs.writeFile(certPath, cert.cert_content, { mode: 0o644 });
+        await fs.writeFile(keyPath, cert.key_content, { mode: 0o600 });
+        logger.info(`Restored TLS certificate: ${safeName}`, { certId });
+      }
+
       return true;
 
     } catch (error: any) {

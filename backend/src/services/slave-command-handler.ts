@@ -143,24 +143,49 @@ export class SlaveCommandHandler {
   }
 
   /**
-   * 确保文件存在（按需从数据库恢复）
+   * 确保文件存在且为最新版本（按需从数据库恢复）
    */
   private async ensureFileExists(filename: string, fileType: 'scenario' | 'injection'): Promise<void> {
     const targetDir = fileType === 'scenario' ? config.sipp.scenarioDir : config.sipp.injectionDir;
     const filePath = path.join(targetDir, filename);
 
-    // 检查文件是否已存在
-    if (fs.existsSync(filePath)) {
-      logger.debug(`File already exists: ${filePath}`);
-      return;
-    }
-
-    // 文件不存在，从数据库恢复
-    logger.info(`File not found locally, restoring from database: ${filename}`);
-
     try {
       const { fileRestoreService } = await import('./file-restore-service');
-      
+      const repository = fileType === 'scenario'
+        ? (await import('../database/scenario-repository')).scenarioRepository
+        : (await import('../database/injection-file-repository')).injectionFileRepository;
+
+      // 从数据库获取文件记录
+      const record = await repository.findByFilename(filename);
+      if (!record) {
+        throw new Error(`${fileType} file not found in database: ${filename}`);
+      }
+
+      const dbModTime = new Date(record.updated_at);
+
+      // 检查本地文件是否存在
+      if (fs.existsSync(filePath)) {
+        const fileStat = fs.statSync(filePath);
+        const fileModTime = fileStat.mtime;
+
+        // 如果本地文件比数据库更新或相同，跳过
+        if (fileModTime >= dbModTime) {
+          logger.debug(`${fileType} file is up-to-date: ${filename}`, {
+            localTime: fileModTime.toISOString(),
+            dbTime: dbModTime.toISOString(),
+          });
+          return;
+        }
+
+        logger.info(`${fileType} file outdated, refreshing from database: ${filename}`, {
+          localTime: fileModTime.toISOString(),
+          dbTime: dbModTime.toISOString(),
+        });
+      } else {
+        logger.info(`${fileType} file not found locally, restoring from database: ${filename}`);
+      }
+
+      // 从数据库恢复/更新文件
       let success: boolean;
       if (fileType === 'scenario') {
         success = await fileRestoreService.restoreScenarioFile(filename);
@@ -174,8 +199,8 @@ export class SlaveCommandHandler {
 
       logger.info(`Successfully restored ${fileType} file from database: ${filename}`);
     } catch (error: any) {
-      logger.error(`Failed to restore ${fileType} file ${filename}:`, error);
-      throw new Error(`Cannot restore ${fileType} file ${filename}: ${error.message}`);
+      logger.error(`Failed to ensure ${fileType} file ${filename}:`, error);
+      throw new Error(`Cannot ensure ${fileType} file ${filename}: ${error.message}`);
     }
   }
 
