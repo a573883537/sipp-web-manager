@@ -820,6 +820,7 @@ const Scenarios: React.FC = () => {
             localPort: parseInt(import.meta.env.VITE_DEFAULT_LOCAL_PORT || '5061'),
             controlPort: 8888, // SIPp控制端口默认值
             rate: 1,
+            ratePeriod: undefined,  // 速率周期（毫秒），可选
             users: 10,
             limit: 10,
             transport: 'udp',
@@ -992,6 +993,21 @@ const Scenarios: React.FC = () => {
                         style={{ flex: 1 }}
                       >
                         <InputNumber min={0} max={10000} placeholder="1" style={{ width: '100%' }} />
+                      </Form.Item>
+
+                      <Form.Item
+                        name="ratePeriod"
+                        label={"速率周期 (可选)"}
+                        style={{ flex: 1 }}
+                        tooltip="在指定周期（毫秒）内发起 rate 个呼叫。例如：rate=10, ratePeriod=5000 表示每5秒发起10个呼叫（间隔500ms）"
+                      >
+                        <InputNumber
+                          min={0}
+                          max={3600000}
+                          placeholder="留空使用默认"
+                          addonAfter="ms"
+                          style={{ width: '100%' }}
+                        />
                       </Form.Item>
 
                       <Form.Item

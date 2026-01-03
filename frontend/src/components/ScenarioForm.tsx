@@ -194,7 +194,7 @@ Max-Forwards: 70
 Expires: 3600
 Content-Length: 0`,
 
-  SUBSCRIBE: `SUBSCRIBE sip:[service]@[remote_ip]:[remote_port] SIP/2.0
+  SUBSCRIBE: `SUBSCRIBE sip:[field2]@[remote_ip]:[remote_port] SIP/2.0
 Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
 From: <sip:[field0]@[remote_ip]>;tag=[pid]SIPpTag00[call_number]
 To: <sip:[service]@[remote_ip]>
@@ -203,7 +203,21 @@ CSeq: 1 SUBSCRIBE
 Contact: <sip:[field0]@[local_ip]:[local_port]>
 Max-Forwards: 70
 Event: presence
-Accept: application/pidf+xml
+Accept: application/dialog-info+xml
+Expires: 3600
+Content-Length: 0`,
+
+  SUBSCRIBE_AUTH: `SUBSCRIBE sip:[field2]@[remote_ip]:[remote_port] SIP/2.0
+Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+From: <sip:[field0]@[remote_ip]>;tag=[pid]SIPpTag00[call_number]
+To: <sip:[field2]@[remote_ip]>
+Call-ID: [call_id]
+CSeq: 2 SUBSCRIBE
+Contact: <sip:[field0]@[local_ip]:[local_port]>
+Max-Forwards: 70
+[authentication username="[field0]" password="[field1]"]
+Event: presence
+Accept: application/dialog-info+xml
 Expires: 3600
 Content-Length: 0`,
 
@@ -650,8 +664,13 @@ const ScenarioForm: React.FC<ScenarioFormProps> = ({
         children: [
           {
             key: 'SUBSCRIBE',
-            label: 'SUBSCRIBE（订阅）',
+            label: 'SUBSCRIBE（第一次请求）',
             onClick: () => addMessage('send', SIP_MESSAGE_TEMPLATES.SUBSCRIBE),
+          },
+          {
+            key: 'SUBSCRIBE_AUTH',
+            label: 'SUBSCRIBE（鉴权重试）',
+            onClick: () => addMessage('send', SIP_MESSAGE_TEMPLATES.SUBSCRIBE_AUTH),
           },
           {
             key: 'NOTIFY',

@@ -145,6 +145,7 @@ class SippProcessInstance extends EventEmitter {
 
     const {
       rate = 10,
+      ratePeriod,  // 可选：速率周期（毫秒）
       users = 100,
       limit = 0,
       remoteHost = '127.0.0.1',
@@ -208,6 +209,11 @@ class SippProcessInstance extends EventEmitter {
       '-trace_screen',  // 启用屏幕追踪
       '-screen_file', path.resolve(config.sipp.logDir, `${this.taskId}_screen.log`),  // 自定义屏幕文件名（绝对路径）
     ];
+
+    // 添加速率周期参数（-rp）
+    if (ratePeriod && ratePeriod > 0) {
+      args.push('-rp', ratePeriod.toString());
+    }
 
     // 添加呼叫限制
     if (limit > 0) {
@@ -878,6 +884,7 @@ export class SippProcessManager extends EventEmitter {
  */
 export interface SippStartOptions {
   rate?: number;           // 呼叫速率 (calls/sec)
+  ratePeriod?: number;     // 速率周期 (毫秒)，在此周期内发起rate个呼叫
   users?: number;          // 最大并发用户数
   limit?: number;          // 呼叫总数限制 (0=无限制)
   remoteHost?: string;     // 远程SIP服务器地址

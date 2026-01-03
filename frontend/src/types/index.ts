@@ -216,6 +216,7 @@ export interface SippConfig {
  */
 export interface TestConfig {
   rate: number;
+  ratePeriod?: number; // 速率周期（毫秒），可选
   users: number;
   limit: number;
   duration?: number;
@@ -310,6 +311,7 @@ export interface TestTask {
   duration?: number;
   config: {
     rate: number;
+    ratePeriod?: number; // 速率周期（毫秒），可选
     users: number;
     limit: number;
     remoteHost: string;
