@@ -118,6 +118,7 @@ apiRouter.post('/sipp/start', async (req: Request, res: Response): Promise<void>
     regScenarioContent, // 新增：注册场景文件内容（从主机推送）
     machineId, // 新增：指定从机ID，不指定则自动选择
     rate = 10,
+    ratePeriod, // 速率周期（毫秒），可选
     users = 100,
     limit = 0,
     remoteHost = '127.0.0.1',
@@ -202,6 +203,7 @@ apiRouter.post('/sipp/start', async (req: Request, res: Response): Promise<void>
 
     const options = {
       rate,
+      ratePeriod, // 速率周期（毫秒），可选
       users,
       limit,
       remoteHost,

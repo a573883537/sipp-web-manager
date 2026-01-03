@@ -592,6 +592,7 @@ const Scenarios: React.FC = () => {
         startTime: Date.now(),
         config: {
           rate: values.rate,
+          ratePeriod: values.ratePeriod, // 速率周期（毫秒），可选
           users: values.users,
           limit: values.limit,
           remoteHost: values.remoteHost,
