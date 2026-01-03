@@ -186,8 +186,8 @@ export class FileRestoreService {
     try {
       logger.info('Starting TLS certificates restoration from database...');
 
-      // 确定证书存储目录（项目根目录）
-      const certsDir = path.join(__dirname, '../../../certs');
+      // 确定证书存储目录（从配置读取）
+      const certsDir = config.sipp.certDir;
       if (!fsSync.existsSync(certsDir)) {
         await fs.mkdir(certsDir, { recursive: true });
         logger.info(`Created TLS certificates directory: ${certsDir}`);
@@ -395,8 +395,8 @@ export class FileRestoreService {
     try {
       const cert = await tlsCertificateRepository.findById(certId);
 
-      // 证书目录（项目根目录）
-      const certsDir = path.join(__dirname, '../../../certs');
+      // 证书目录（从配置读取）
+      const certsDir = config.sipp.certDir;
       if (!fsSync.existsSync(certsDir)) {
         await fs.mkdir(certsDir, { recursive: true });
       }

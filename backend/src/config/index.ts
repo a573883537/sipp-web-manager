@@ -39,6 +39,7 @@ export const config = {
     scenarioDir: process.env.SIPP_SCENARIO_DIR || path.join(__dirname, '../../../scenarios'),
     injectionDir: process.env.SIPP_INJECTION_DIR || path.join(__dirname, '../../../injections'),
     logDir: process.env.SIPP_LOG_DIR || path.join(__dirname, '../../../logs'),
+    certDir: process.env.SIPP_CERT_DIR || path.join(__dirname, '../../../certs'),
   },
 
   // WebSocket配置

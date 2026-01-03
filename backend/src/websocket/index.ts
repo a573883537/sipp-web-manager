@@ -100,6 +100,9 @@ export class WebSocketService {
           if (currentSocket && currentSocket.id === socket.id) {
             this.slaveSockets.delete(machineId);
             logger.info(`Slave socket removed from registry: ${machineId}`);
+            
+            // 清理该从机的所有待处理请求（避免内存泄露）
+            this.cleanupPendingRequestsForSlave(machineId);
           }
         }
       });
@@ -937,6 +940,30 @@ export class WebSocketService {
   }
 
   /**
+   * 清理从机的所有待处理请求
+   * 防止从机离线时造成内存泄露
+   */
+  private cleanupPendingRequestsForSlave(machineId: string): void {
+    let cleanedCount = 0;
+    
+    this.pendingRequests.forEach((pending, requestId) => {
+      // 清除超时定时器
+      clearTimeout(pending.timeout);
+      
+      // 拒绝 Promise（从机已断开）
+      pending.reject(new Error(`Slave ${machineId} disconnected before response`));
+      
+      // 从 Map 中删除
+      this.pendingRequests.delete(requestId);
+      cleanedCount++;
+    });
+    
+    if (cleanedCount > 0) {
+      logger.info(`Cleaned up ${cleanedCount} pending request(s) for slave ${machineId}`);
+    }
+  }
+
+  /**
    * 获取连接的从机列表
    */
   getConnectedSlaves(): string[] {
@@ -958,6 +985,14 @@ export class WebSocketService {
     this.stopCsvMonitoring();
     this.stopStatsPolling();
     this.stopTaskStatsPolling();
+    
+    // 清理所有待处理请求（避免内存泄露）
+    this.pendingRequests.forEach((pending) => {
+      clearTimeout(pending.timeout);
+      pending.reject(new Error('WebSocket service is closing'));
+    });
+    this.pendingRequests.clear();
+    
     this.io.close();
     logger.info('WebSocket service closed');
   }

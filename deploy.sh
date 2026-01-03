@@ -187,7 +187,18 @@ fi
 print_step "生成配置文件..."
 
 if [[ "$NODE_ROLE" == "master" ]]; then
-    cat > backend/.env << EOF
+    # 检查后端配置文件是否已存在
+    if [[ -f "backend/.env" ]]; then
+        print_warning "后端配置文件已存在，跳过生成"
+        print_warning "如需重新生成，请先删除: backend/.env"
+    else
+        # 如果存在 .env.example，提示用户可以手动复制
+        if [[ -f "backend/.env.example" ]]; then
+            print_warning "检测到后端配置模板: backend/.env.example"
+            print_warning "您可以基于模板手动配置，或使用自动生成的默认配置"
+        fi
+        
+        cat > backend/.env << EOF
 # SIPp Web Manager - 主机配置
 # 生成时间: $(date '+%Y-%m-%d %H:%M:%S')
 
@@ -214,8 +225,10 @@ LOG_LEVEL=info
 SIPP_SCENARIO_DIR=../scenarios
 SIPP_INJECTION_DIR=../injections
 SIPP_LOG_DIR=../logs
+SIPP_CERT_DIR=../certs
 EOF
-    print_success "主机配置文件已创建: backend/.env"
+        print_success "主机配置文件已创建: backend/.env"
+    fi
 
 else
     # 从机配置
@@ -252,7 +265,12 @@ else
         fi
     fi
 
-    cat > backend/.env << EOF
+    # 检查后端配置文件是否已存在
+    if [[ -f "backend/.env" ]]; then
+        print_warning "后端配置文件已存在，跳过生成"
+        print_warning "如需重新生成，请先删除: backend/.env"
+    else
+        cat > backend/.env << EOF
 # SIPp Web Manager - 从机配置
 # 生成时间: $(date '+%Y-%m-%d %H:%M:%S')
 
@@ -283,8 +301,10 @@ LOG_LEVEL=info
 SIPP_SCENARIO_DIR=../scenarios
 SIPP_INJECTION_DIR=../injections
 SIPP_LOG_DIR=../logs
+SIPP_CERT_DIR=../certs
 EOF
-    print_success "从机配置文件已创建: backend/.env"
+        print_success "从机配置文件已创建: backend/.env"
+    fi
 fi
 
 # ============================================
