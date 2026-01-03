@@ -16,8 +16,7 @@ build/
 .env.local
 .env.*.local
 
-# 日志
-logs/
+# 日志（项目根目录统一管理，此处仅忽略零散日志文件）
 *.log
 
 # 数据库
@@ -41,3 +40,6 @@ coverage/
 tmp/
 temp/
 *.tmp
+
+# PID
+*.pid
