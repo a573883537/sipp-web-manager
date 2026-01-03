@@ -503,9 +503,6 @@ class SippProcessInstance extends EventEmitter {
             logger.info('Sent graceful quit command via control port', { taskId: this.taskId });
           }
           
-          // 等待进程退出（控制端口命令通常很快生效）
-          await this.waitForExit(5000);
-          
           logger.info('SIPp process stopped successfully via control port', { taskId: this.taskId });
           this.emit('stopped', { taskId: this.taskId });
           return;

@@ -26,6 +26,7 @@ import {
   ThunderboltOutlined,
   DeleteOutlined,
   ExclamationCircleOutlined,
+  CameraOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { apiService } from '@/services/api';
@@ -49,6 +50,12 @@ const Machines: React.FC = () => {
   const [runningTasksByMachine, setRunningTasksByMachine] = useState<Record<string, any[]>>({});
   const [loading, setLoading] = useState(false);
   const [healthChecking, setHealthChecking] = useState<Record<string, boolean>>({});
+
+  // 截图功能相关状态
+  const [screenModalVisible, setScreenModalVisible] = useState(false);
+  const [screenContent, setScreenContent] = useState<string>('');
+  const [screenLoading, setScreenLoading] = useState(false);
+  const [currentTaskId, setCurrentTaskId] = useState<string>('');
 
   /**
    * 加载机器列表和正在运行的任务
@@ -187,6 +194,50 @@ const Machines: React.FC = () => {
   };
 
   /**
+   * 截取任务屏幕快照
+   */
+  const handleScreenshot = async (taskId: string) => {
+    try {
+      setCurrentTaskId(taskId);
+      setScreenModalVisible(true);
+      setScreenLoading(true);
+      setScreenContent('');
+
+      // 发送截图命令（'s' 或 SIGUSR2）
+      const cmdResponse = await apiService.remoteControlTask(taskId, 's');
+      if (!cmdResponse.success) {
+        message.warning('截图命令发送失败，尝试读取已有截图');
+      }
+
+      // 等待一小段时间让SIPp写入文件
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // 获取截图内容
+      const response = await apiService.getTaskScreen(taskId);
+      if (response.success && response.content) {
+        setScreenContent(response.content);
+      } else {
+        message.error('获取截图内容失败');
+        setScreenContent('截图文件不存在或为空');
+      }
+    } catch (error: any) {
+      message.error(`截图失败: ${error.message}`);
+      setScreenContent(`错误: ${error.message}`);
+    } finally {
+      setScreenLoading(false);
+    }
+  };
+
+  /**
+   * 关闭截图弹窗
+   */
+  const handleCloseScreenModal = () => {
+    setScreenModalVisible(false);
+    setScreenContent('');
+    setCurrentTaskId('');
+  };
+
+  /**
    * 获取状态标签
    */
   const getStatusTag = (status: string) => {
@@ -312,7 +363,7 @@ const Machines: React.FC = () => {
     {
       title: '操作',
       key: 'actions',
-      width: 180,
+      width: 220,
       fixed: 'right',
       render: (_: any, record: any) => (
         <Space size="small">
@@ -329,6 +380,13 @@ const Machines: React.FC = () => {
               size="small"
               icon={<ThunderboltOutlined />}
               onClick={() => handleTaskControl(record.id, 'a')}
+            />
+          </Tooltip>
+          <Tooltip title="截取屏幕">
+            <Button
+              size="small"
+              icon={<CameraOutlined />}
+              onClick={() => handleScreenshot(record.id)}
             />
           </Tooltip>
           <Tooltip title="停止任务">
@@ -704,6 +762,51 @@ const Machines: React.FC = () => {
             defaultPageSize: 20,
           }}
         />
+
+        {/* 截图弹窗 */}
+        <Modal
+          title={
+            <Space>
+              <CameraOutlined />
+              <span>任务屏幕快照 - {currentTaskId}</span>
+            </Space>
+          }
+          open={screenModalVisible}
+          onCancel={handleCloseScreenModal}
+          footer={[
+            <Button key="refresh" onClick={() => handleScreenshot(currentTaskId)} loading={screenLoading}>
+              刷新截图
+            </Button>,
+            <Button key="close" type="primary" onClick={handleCloseScreenModal}>
+              关闭
+            </Button>,
+          ]}
+          width={1000}
+          style={{ top: 20 }}
+        >
+          {screenLoading ? (
+            <div style={{ textAlign: 'center', padding: '40px 0' }}>
+              <Text type="secondary">正在获取截图...</Text>
+            </div>
+          ) : (
+            <pre
+              style={{
+                backgroundColor: '#000',
+                color: '#0f0',
+                padding: '16px',
+                borderRadius: '4px',
+                maxHeight: '70vh',
+                overflow: 'auto',
+                fontFamily: 'Monaco, Consolas, "Courier New", monospace',
+                fontSize: '12px',
+                lineHeight: '1.5',
+                whiteSpace: 'pre',
+              }}
+            >
+              {screenContent || '暂无截图内容'}
+            </pre>
+          )}
+        </Modal>
       </Card>
     </div>
   );
