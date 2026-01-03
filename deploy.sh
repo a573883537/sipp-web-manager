@@ -219,6 +219,7 @@ DB_PASSWORD=${DB_PASSWORD:-}
 DB_POOL_SIZE=10
 
 # 日志级别
+LOG_FILE=../logs/app.log
 LOG_LEVEL=info
 
 # 文件目录（项目根目录）
@@ -295,6 +296,7 @@ DB_PASSWORD=${DB_PASSWORD}
 DB_POOL_SIZE=5
 
 # 日志级别
+LOG_FILE=../logs/app.log
 LOG_LEVEL=info
 
 # 文件目录（项目根目录）
