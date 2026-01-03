@@ -98,13 +98,14 @@ export class SlaveManager {
   /**
    * 在指定从机上启动测试
    * 仅通过 WebSocket 通信，无 HTTP 降级
+   * @returns Promise<{pid: number | null, controlPort: number | null}>
    */
   async startTestOnSlave(
     machineId: string,
     taskId: string,
     scenarioFile: string,
     options: any
-  ): Promise<void> {
+  ): Promise<{ pid: number | null; controlPort: number | null }> {
     const slave = await this.getSlaveInfo(machineId);
     if (!slave) {
       throw new Error(`Slave not found: ${machineId}`);
@@ -136,8 +137,14 @@ export class SlaveManager {
 
     // 通过 WebSocket 发送命令
     try {
-      await this.wsService.sendCommandToSlave(machineId, 'task:start', payload, this.requestTimeout);
+      const response = await this.wsService.sendCommandToSlave(machineId, 'task:start', payload, this.requestTimeout);
       logger.info(`Test started on slave ${machineId} via WebSocket: ${taskId}`);
+      
+      // 返回从机响应中的 pid 和 controlPort
+      return {
+        pid: response.pid || null,
+        controlPort: response.controlPort || null,
+      };
     } catch (error: any) {
       logger.error(`Failed to start test on slave ${machineId} via WebSocket: ${error.message}`);
       throw error;

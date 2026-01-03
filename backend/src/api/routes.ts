@@ -241,9 +241,16 @@ apiRouter.post('/sipp/start', async (req: Request, res: Response): Promise<void>
     if (config.node.role === 'master' && machineId) {
       // 主机模式 + 指定从机：转发到指定从机
       if (machineId !== 'master') {
-        await slaveManager.startTestOnSlave(machineId, taskId, scenarioFile, options);
+        const slaveResponse = await slaveManager.startTestOnSlave(machineId, taskId, scenarioFile, options);
         finalMachineId = machineId;
         logger.info(`Test dispatched to slave: ${machineId}`);
+        
+        // ✅ 更新数据库记录从机返回的 pid 和 controlPort
+        await taskHistoryRepository.update(taskId, {
+          pid: slaveResponse.pid || undefined,
+          control_port: slaveResponse.controlPort || undefined,
+          backend_pid: process.pid,
+        });
       } else {
         // 在主机本地执行
         await sippProcessManager.start(taskId, scenarioFile, options);
@@ -260,9 +267,16 @@ apiRouter.post('/sipp/start', async (req: Request, res: Response): Promise<void>
       // 主机模式 + 未指定从机：自动选择最佳从机
       const selectedSlave = await slaveManager.selectSlave();
       if (selectedSlave) {
-        await slaveManager.startTestOnSlave(selectedSlave.id, taskId, scenarioFile, options);
+        const slaveResponse = await slaveManager.startTestOnSlave(selectedSlave.id, taskId, scenarioFile, options);
         finalMachineId = selectedSlave.id;
         logger.info(`Test auto-dispatched to slave: ${selectedSlave.id}`);
+        
+        // ✅ 更新数据库记录从机返回的 pid 和 controlPort
+        await taskHistoryRepository.update(taskId, {
+          pid: slaveResponse.pid || undefined,
+          control_port: slaveResponse.controlPort || undefined,
+          backend_pid: process.pid,
+        });
       } else {
         // 无可用从机，主机本地执行（降级策略）
         await sippProcessManager.start(taskId, scenarioFile, options);

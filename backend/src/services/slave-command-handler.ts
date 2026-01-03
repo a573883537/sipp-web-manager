@@ -114,9 +114,10 @@ export class SlaveCommandHandler {
       // 启动 SIPp 进程
       await sippProcessManager.start(taskId, scenarioFile, fullOptions);
 
-      // 获取进程状态（包含pid）
+      // 获取进程状态（包含pid和controlPort）
       const status = sippProcessManager.getStatus(taskId);
       const pid = status?.pid || null;
+      const controlPort = status?.controlPort || null;
 
       // 发送成功响应
       this.socket.emit('task:start:ack', {
@@ -124,9 +125,10 @@ export class SlaveCommandHandler {
         success: true,
         taskId,
         pid,
+        controlPort,  // ✅ 新增：返回控制端口
       });
 
-      logger.info(`Task started successfully: ${taskId} (PID: ${pid})`);
+      logger.info(`Task started successfully: ${taskId} (PID: ${pid}, Control Port: ${controlPort})`);
     } catch (error: any) {
       logger.error(`Failed to start task ${taskId}:`, error);
 

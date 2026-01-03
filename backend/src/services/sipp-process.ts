@@ -479,10 +479,41 @@ class SippProcessInstance extends EventEmitter {
     logger.info('Stopping SIPp process', {
       taskId: this.taskId,
       pid: this.process.pid,
-      force
+      force,
+      method: 'control-port'  // 使用控制端口而非 kill 信号
     });
 
     try {
+      // ✅ 优先使用控制端口命令停止
+      if (this.controlPort > 0) {
+        try {
+          if (force) {
+            // 强制停止：Q 命令（立即退出）
+            await this.forceQuit();
+            logger.info('Sent force quit command via control port', { taskId: this.taskId });
+          } else {
+            // 优雅停止：q 命令（等待当前呼叫完成）
+            await this.quit();
+            logger.info('Sent graceful quit command via control port', { taskId: this.taskId });
+          }
+          
+          // 等待进程退出（控制端口命令通常很快生效）
+          await this.waitForExit(5000);
+          
+          logger.info('SIPp process stopped successfully via control port', { taskId: this.taskId });
+          this.emit('stopped', { taskId: this.taskId });
+          return;
+          
+        } catch (controlError: any) {
+          logger.warn('Failed to stop via control port, falling back to signal', {
+            taskId: this.taskId,
+            error: controlError.message
+          });
+        }
+      }
+      
+      // ⚠️ 备用方案：控制端口失败时使用信号（向后兼容）
+      logger.info('Using signal fallback to stop process', { taskId: this.taskId });
       if (force) {
         this.process.kill('SIGKILL');
       } else {
@@ -491,14 +522,14 @@ class SippProcessInstance extends EventEmitter {
 
       await this.waitForExit(5000);
 
-      logger.info('SIPp process stopped successfully', { taskId: this.taskId });
+      logger.info('SIPp process stopped successfully via signal', { taskId: this.taskId });
       this.emit('stopped', { taskId: this.taskId });
 
     } catch (error: any) {
       logger.error('Failed to stop SIPp process:', { taskId: this.taskId, error });
 
       if (!force && this.process) {
-        logger.warn('Forcing SIPp process termination', { taskId: this.taskId });
+        logger.warn('Forcing SIPp process termination with SIGKILL', { taskId: this.taskId });
         this.process.kill('SIGKILL');
       }
 
