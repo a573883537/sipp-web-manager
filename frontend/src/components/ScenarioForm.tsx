@@ -508,7 +508,6 @@ const ScenarioForm: React.FC<ScenarioFormProps> = ({
       case 'recv':
         newMessage.response = '200';
         newMessage.optional = false;
-        newMessage.rtd = false;
         newMessage.auth = false;
         break;
       case 'pause':
@@ -982,6 +981,38 @@ const ScenarioForm: React.FC<ScenarioFormProps> = ({
               </Space>
             </Space>
 
+            {/* RTD 计时器配置 */}
+            <Space wrap style={{ marginTop: 8 }}>
+              {/* RTD 计时器名称输入 */}
+              <Input
+                addonBefore="RTD计时器"
+                placeholder="不填则不记录（如: invite, bye, register）"
+                value={msg.rtd || ''}
+                onChange={(e) => updateMessage(index, { rtd: e.target.value || undefined })}
+                style={{ width: 360 }}
+              />
+
+              {/* 启动RTD计时器 */}
+              <Input
+                addonBefore="启动计时器"
+                placeholder="start_rtd (可选)"
+                value={msg.start_rtd}
+                onChange={(e) => updateMessage(index, { start_rtd: e.target.value || undefined })}
+                style={{ width: 220 }}
+              />
+
+              {/* 允许重复测量 */}
+              <Select
+                placeholder="重复测量"
+                style={{ width: 140 }}
+                value={msg.repeat_rtd || false}
+                onChange={(value) => updateMessage(index, { repeat_rtd: value })}
+              >
+                <Select.Option value={false}>不重复</Select.Option>
+                <Select.Option value={true}>允许重复</Select.Option>
+              </Select>
+            </Space>
+
             {/* SDP 编码配置（仅包含 SDP 的消息显示） */}
             {hasSDPContent(msg.cdata) && (
               <Space direction="vertical" style={{ width: '100%', marginTop: 8 }}>
@@ -1092,15 +1123,36 @@ const ScenarioForm: React.FC<ScenarioFormProps> = ({
                 <Select.Option value={false}>必需</Select.Option>
                 <Select.Option value={true}>可选</Select.Option>
               </Select>
+
+              {/* RTD 计时器配置 */}
+              <Input
+                addonBefore="RTD计时器"
+                placeholder="不填则不记录（如: invite, bye）"
+                value={msg.rtd || ''}
+                onChange={(e) => updateMessage(index, { rtd: e.target.value || undefined })}
+                style={{ width: 320 }}
+              />
+
+              {/* 启动RTD计时器 */}
+              <Input
+                addonBefore="启动计时器"
+                placeholder="start_rtd (可选)"
+                value={msg.start_rtd}
+                onChange={(e) => updateMessage(index, { start_rtd: e.target.value || undefined })}
+                style={{ width: 220 }}
+              />
+
+              {/* 允许重复测量 */}
               <Select
-                placeholder="响应时间"
+                placeholder="重复测量"
                 style={{ width: 140 }}
-                value={msg.rtd}
-                onChange={(value) => updateMessage(index, { rtd: value })}
+                value={msg.repeat_rtd || false}
+                onChange={(value) => updateMessage(index, { repeat_rtd: value })}
               >
-                <Select.Option value={false}>不记录RTD</Select.Option>
-                <Select.Option value={true}>记录RTD</Select.Option>
+                <Select.Option value={false}>不重复</Select.Option>
+                <Select.Option value={true}>允许重复</Select.Option>
               </Select>
+
               {/* 只在UAC客户端模式下显示认证选项 */}
               {!msg.request && (
                 <Select

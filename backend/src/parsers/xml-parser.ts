@@ -27,7 +27,9 @@ export interface ScenarioMessage {
   request?: string;
   response?: string;
   optional?: boolean;
-  rtd?: boolean;
+  rtd?: string;             // RTD计时器名称（如 "invite", "bye", "register"）
+  start_rtd?: string;       // 启动RTD计时器（计时器名称）
+  repeat_rtd?: boolean;     // 允许重复测量（用于循环场景）
   auth?: boolean;  // 启用认证（用于接收401/407时触发dialog_authentication）
   timeout?: number;
   milliseconds?: number;
@@ -216,6 +218,18 @@ export class XmlParser {
     switch (type) {
       case 'send':
         message.cdata = raw._ || raw;
+        // start_rtd：启动计时器（send消息也支持）
+        if (raw.start_rtd) {
+          message.start_rtd = String(raw.start_rtd);
+        }
+        // RTD：仅支持命名计时器（字符串）
+        if (raw.rtd && typeof raw.rtd === 'string' && raw.rtd.trim()) {
+          message.rtd = raw.rtd.trim();
+        }
+        // repeat_rtd：允许重复测量
+        if (raw.repeat_rtd) {
+          message.repeat_rtd = raw.repeat_rtd === 'true' || raw.repeat_rtd === true;
+        }
         message.timeout = raw.timeout ? parseInt(raw.timeout, 10) : undefined;
         message.next = raw.next;
         message.ontimeout = raw.ontimeout;
@@ -226,7 +240,16 @@ export class XmlParser {
         message.request = raw.request;
         message.response = raw.response;
         message.optional = raw.optional === 'true' || raw.optional === true;
-        message.rtd = raw.rtd === 'true' || raw.rtd === true;
+        // RTD：仅支持命名计时器（字符串）
+        if (raw.rtd && typeof raw.rtd === 'string' && raw.rtd.trim()) {
+          message.rtd = raw.rtd.trim();
+        }
+        // start_rtd：启动计时器
+        if (raw.start_rtd) {
+          message.start_rtd = String(raw.start_rtd);
+        }
+        // repeat_rtd：允许重复测量
+        message.repeat_rtd = raw.repeat_rtd === 'true' || raw.repeat_rtd === true;
         message.auth = raw.auth === 'true' || raw.auth === true;
         message.timeout = raw.timeout ? parseInt(raw.timeout, 10) : undefined;
         message.next = raw.next;
@@ -421,6 +444,18 @@ export class XmlParser {
     switch (message.type) {
       case 'send':
         xml += '  <send';
+        // start_rtd：启动计时器
+        if (message.start_rtd) {
+          xml += ` start_rtd="${this.escapeXml(message.start_rtd)}"`;
+        }
+        // rtd：停止计时器并记录（仅支持命名计时器）
+        if (message.rtd) {
+          xml += ` rtd="${this.escapeXml(message.rtd)}"`;
+        }
+        // repeat_rtd：允许重复测量
+        if (message.repeat_rtd !== undefined && message.repeat_rtd) {
+          xml += ` repeat_rtd="true"`;
+        }
         if (message.timeout) {
           xml += ` timeout="${message.timeout}"`;
         }
@@ -466,8 +501,17 @@ export class XmlParser {
         if (message.optional !== undefined) {
           xml += ` optional="${message.optional}"`;
         }
-        if (message.rtd !== undefined) {
-          xml += ` rtd="${message.rtd}"`;
+        // start_rtd：启动计时器
+        if (message.start_rtd) {
+          xml += ` start_rtd="${this.escapeXml(message.start_rtd)}"`;
+        }
+        // rtd：停止计时器并记录（仅支持命名计时器）
+        if (message.rtd) {
+          xml += ` rtd="${this.escapeXml(message.rtd)}"`;
+        }
+        // repeat_rtd：允许重复测量
+        if (message.repeat_rtd !== undefined && message.repeat_rtd) {
+          xml += ` repeat_rtd="true"`;
         }
         if (message.timeout) {
           xml += ` timeout="${message.timeout}"`;

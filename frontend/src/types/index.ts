@@ -114,7 +114,9 @@ export interface ScenarioMessage {
   request?: string;
   response?: string;
   optional?: boolean;
-  rtd?: boolean;
+  rtd?: string;             // RTD计时器名称（如 "invite", "bye", "register"）
+  start_rtd?: string;       // 启动RTD计时器（计时器名称）
+  repeat_rtd?: boolean;     // 允许重复测量（用于循环场景）
   auth?: boolean;  // 启用认证（用于接收401/407时触发dialog_authentication）
   timeout?: number;
   milliseconds?: number;
