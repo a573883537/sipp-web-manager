@@ -146,9 +146,6 @@ apiRouter.post('/sipp/start', async (req: Request, res: Response): Promise<void>
     traceRtt,
     traceScreen,
     // 其他高级选项
-    localIp,
-    bindLocal,
-    rsa,
     autoAnswer,
   } = req.body;
 
@@ -231,9 +228,6 @@ apiRouter.post('/sipp/start', async (req: Request, res: Response): Promise<void>
       traceRtt,
       traceScreen,
       // 其他高级选项
-      localIp,
-      bindLocal,
-      rsa,
       autoAnswer,
     };
 

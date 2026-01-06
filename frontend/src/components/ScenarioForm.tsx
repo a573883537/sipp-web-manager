@@ -27,6 +27,7 @@ import {
   CodeOutlined,
   ThunderboltOutlined,
   AimOutlined,
+  HolderOutlined,
 } from '@ant-design/icons';
 import type { Scenario, ScenarioMessage, MessageType } from '@/types';
 
@@ -126,8 +127,10 @@ o=[field0] 53655765 2353687637 IN IP[local_ip_type] [local_ip]
 s=-
 c=IN IP[media_ip_type] [media_ip]
 t=0 0
-m=audio [auto_media_port] RTP/AVP 0
-a=rtpmap:0 PCMU/8000`,
+m=audio [media_port] RTP/AVP 0 8 18
+a=rtpmap:0 PCMU/8000
+a=rtpmap:8 PCMA/8000
+a=rtpmap:18 G729/8000`,
 
   INVITE_AUTH: `INVITE sip:[field2]@[remote_ip]:[remote_port] SIP/2.0
 Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
@@ -146,7 +149,7 @@ o=[field0] 53655765 2353687637 IN IP[local_ip_type] [local_ip]
 s=-
 c=IN IP[media_ip_type] [media_ip]
 t=0 0
-m=audio [auto_media_port] RTP/AVP 0 8 18
+m=audio [media_port] RTP/AVP 0 8 18
 a=rtpmap:0 PCMU/8000
 a=rtpmap:8 PCMA/8000
 a=rtpmap:18 G729/8000`,
@@ -295,8 +298,10 @@ o=[field0] 53655765 2353687638 IN IP[local_ip_type] [local_ip]
 s=-
 c=IN IP[media_ip_type] [media_ip]
 t=0 0
-m=audio [auto_media_port] RTP/AVP 0
+m=audio [media_port] RTP/AVP 0 8 18
 a=rtpmap:0 PCMU/8000
+a=rtpmap:8 PCMA/8000
+a=rtpmap:18 G729/8000
 a=sendonly`,
 
   REFER: `REFER sip:[service]@[remote_ip]:[remote_port] SIP/2.0
@@ -348,9 +353,10 @@ o=[field0] 53655765 2353687637 IN IP[local_ip_type] [local_ip]
 s=-
 c=IN IP[media_ip_type] [media_ip]
 t=0 0
-m=audio [auto_media_port] RTP/AVP 0 8
+m=audio [media_port] RTP/AVP 0 8 18
 a=rtpmap:0 PCMU/8000
 a=rtpmap:8 PCMA/8000
+a=rtpmap:18 G729/8000
 a=sendrecv`,
 
   RESPONSE_180_RINGING: `SIP/2.0 180 Ringing
@@ -377,8 +383,10 @@ o=[field0] 53655765 2353687637 IN IP[local_ip_type] [local_ip]
 s=-
 c=IN IP[media_ip_type] [media_ip]
 t=0 0
-m=audio [auto_media_port] RTP/AVP 0
+m=audio [media_port] RTP/AVP 0 8 18
 a=rtpmap:0 PCMU/8000
+a=rtpmap:8 PCMA/8000
+a=rtpmap:18 G729/8000
 a=sendrecv`,
 
   RESPONSE_401_UNAUTHORIZED: `SIP/2.0 401 Unauthorized
@@ -438,6 +446,7 @@ const ScenarioForm: React.FC<ScenarioFormProps> = ({
   const [form] = Form.useForm();
   const [messages, setMessages] = useState<ScenarioMessage[]>([]);
   const [loading, setLoading] = useState(false);
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
 
   // 监听visible和initialData变化，正确初始化表单
   useEffect(() => {
@@ -572,6 +581,42 @@ const ScenarioForm: React.FC<ScenarioFormProps> = ({
     const newMessages = [...messages];
     [newMessages[index], newMessages[index + 1]] = [newMessages[index + 1], newMessages[index]];
     setMessages(newMessages);
+  };
+
+  /**
+   * 拖拽开始
+   */
+  const handleDragStart = (index: number) => {
+    setDraggedIndex(index);
+  };
+
+  /**
+   * 拖拽经过
+   */
+  const handleDragOver = (e: React.DragEvent, targetIndex: number) => {
+    e.preventDefault();
+
+    if (draggedIndex === null || draggedIndex === targetIndex) {
+      return;
+    }
+
+    const newMessages = [...messages];
+    const draggedItem = newMessages[draggedIndex];
+
+    // 移除拖拽项
+    newMessages.splice(draggedIndex, 1);
+    // 插入到目标位置
+    newMessages.splice(targetIndex, 0, draggedItem);
+
+    setMessages(newMessages);
+    setDraggedIndex(targetIndex);
+  };
+
+  /**
+   * 拖拽结束
+   */
+  const handleDragEnd = () => {
+    setDraggedIndex(null);
   };
 
   /**
@@ -789,6 +834,20 @@ const ScenarioForm: React.FC<ScenarioFormProps> = ({
   };
 
   /**
+   * 从 CDATA 中提取 SIP 响应码（如 "200 OK", "180 Ringing"）
+   */
+  const extractResponseCode = (cdata?: string): string | undefined => {
+    if (!cdata) return undefined;
+    // 响应消息第一行格式：SIP/2.0 200 OK
+    const firstLine = cdata.trim().split('\n')[0];
+    const match = firstLine.match(/^SIP\/2\.0\s+(\d{3})\s+(.+)$/);
+    if (match) {
+      return `${match[1]} ${match[2]}`; // 返回 "200 OK"
+    }
+    return undefined;
+  };
+
+  /**
    * 从 CDATA 中提取 CSeq 序列号
    */
   const extractCSeq = (cdata?: string): number | undefined => {
@@ -823,7 +882,7 @@ const ScenarioForm: React.FC<ScenarioFormProps> = ({
    */
   const extractCodecs = (cdata?: string): number[] => {
     if (!cdata) return [];
-    const match = cdata.match(/m=audio\s+\[auto_media_port\]\s+RTP\/AVP\s+([\d\s]+)/);
+    const match = cdata.match(/m=audio\s+\[media_port\]\s+RTP\/AVP\s+([\d\s]+)/);
     if (match) {
       return match[1].trim().split(/\s+/).map(Number);
     }
@@ -851,11 +910,11 @@ const ScenarioForm: React.FC<ScenarioFormProps> = ({
     // - (?:\s+\d+)+ 匹配 payload type 列表（一个或多个 "空格+数字"，不能匹配换行符）
     // - (?:\r?\na=rtpmap:[^\r\n]+)* 匹配其后所有 a=rtpmap 行
     //   注意：a=rtpmap 前面必须有换行符，但后面不要求（因为可能直接接 ]]>）
-    const sdpBlockRegex = /m=audio\s+\[auto_media_port\]\s+RTP\/AVP(?:\s+\d+)+(?:\r?\na=rtpmap:[^\r\n]+)*/g;
+    const sdpBlockRegex = /m=audio\s+\[media_port\]\s+RTP\/AVP(?:\s+\d+)+(?:\r?\na=rtpmap:[^\r\n]+)*/g;
 
     const updated = cdata.replace(sdpBlockRegex, () => {
       // 重建完整的 SDP 媒体块（末尾必须有换行符）
-      return `m=audio [auto_media_port] RTP/AVP ${mLinePayloads}\n${rtpmapLines}\n`;
+      return `m=audio [media_port] RTP/AVP ${mLinePayloads}\n${rtpmapLines}\n`;
     });
 
     return updated;
@@ -865,21 +924,48 @@ const ScenarioForm: React.FC<ScenarioFormProps> = ({
    * 渲染消息编辑器
    */
   const renderMessageEditor = (msg: ScenarioMessage, index: number) => {
+    // 提取 Send 消息的显示信息（请求方法或响应码）
+    const sendDisplayInfo = msg.type === 'send'
+      ? (extractRequestMethod(msg.cdata) || extractResponseCode(msg.cdata))
+      : undefined;
+
     return (
       <Panel
         key={index}
+        style={{
+          opacity: draggedIndex === index ? 0.5 : 1,
+          transition: 'opacity 0.2s',
+        }}
         header={
-          <Space>
-            {getMessageIcon(msg.type)}
-            <Tag color={getMessageTypeColor(msg.type)}>
-              {msg.type.toUpperCase()}
-            </Tag>
-            <span>消息 #{index + 1}</span>
+          <div
+            draggable
+            onDragStart={(e) => {
+              e.stopPropagation();
+              handleDragStart(index);
+            }}
+            onDragOver={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              handleDragOver(e, index);
+            }}
+            onDragEnd={(e) => {
+              e.stopPropagation();
+              handleDragEnd();
+            }}
+            style={{ cursor: 'move', width: '100%' }}
+          >
+            <Space>
+              <HolderOutlined style={{ cursor: 'move', color: '#999' }} />
+              {getMessageIcon(msg.type)}
+              <Tag color={getMessageTypeColor(msg.type)}>
+                {msg.type.toUpperCase()}
+              </Tag>
+              <span>消息 #{index + 1}</span>
             {msg.type === 'recv' && (msg.response || msg.request) && (
               <Tag>{msg.response || msg.request}</Tag>
             )}
-            {msg.type === 'send' && (msg.request || extractRequestMethod(msg.cdata)) && (
-              <Tag color="blue">{msg.request || extractRequestMethod(msg.cdata)}</Tag>
+            {msg.type === 'send' && sendDisplayInfo && (
+              <Tag color="blue">{sendDisplayInfo}</Tag>
             )}
             {msg.type === 'send' && extractCSeq(msg.cdata) && (
               <Tag color="cyan">CSeq: {extractCSeq(msg.cdata)}</Tag>
@@ -903,6 +989,7 @@ const ScenarioForm: React.FC<ScenarioFormProps> = ({
               <Tag color="orange">⏱ {msg.ontimeout}</Tag>
             )}
           </Space>
+          </div>
         }
         extra={
           <Space onClick={(e) => e.stopPropagation()}>

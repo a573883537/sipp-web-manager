@@ -395,9 +395,6 @@ class SippProcessInstance extends EventEmitter {
     if (options.traceScreen) args.push('-trace_screen');
 
     // 其他高级选项
-    if (options.localIp) args.push('-i', options.localIp);
-    if (options.bindLocal) args.push('-bind_local');
-    if (options.rsa) args.push('-rsa', options.rsa);
     if (autoAnswer) args.push('-aa');
 
     logger.info('Starting SIPp process', {

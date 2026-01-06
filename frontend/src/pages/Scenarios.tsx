@@ -1202,16 +1202,7 @@ const Scenarios: React.FC = () => {
                       <InputNumber min={0} max={1000000} placeholder="无限制" style={{ width: '100%' }} />
                     </Form.Item>
 
-                    {/* 网络相关高级选项 */}
-                    <Form.Item name="localIp" label="Local IP">
-                      <Input placeholder="Auto" />
-                    </Form.Item>
-                    <Form.Item name="bindLocal" label="Bind Local" valuePropName="checked">
-                      <Switch />
-                    </Form.Item>
-                    <Form.Item name="rsa" label="Remote Send Address">
-                      <Input placeholder="host:port" />
-                    </Form.Item>
+                    {/* 其他高级选项 */}
                     <Form.Item
                       name="autoAnswer"
                       label="Auto Answer (会话外消息自动应答)"
