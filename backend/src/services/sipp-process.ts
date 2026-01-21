@@ -395,6 +395,11 @@ class SippProcessInstance extends EventEmitter {
     if (options.traceScreen) args.push('-trace_screen');
 
     // 其他高级选项
+    if (options.rsa) {
+      // 确保 rsa 格式正确：必须是 IP:端口 或 IP 格式，不允许空格分隔
+      let rsaValue = options.rsa.trim();
+      args.push('-rsa', rsaValue);
+    }
     if (autoAnswer) args.push('-aa');
 
     logger.info('Starting SIPp process', {

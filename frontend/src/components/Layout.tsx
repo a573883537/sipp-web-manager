@@ -6,6 +6,7 @@ import {
   MenuUnfoldOutlined,
   WifiOutlined,
   DatabaseOutlined,
+  AudioOutlined,
   HistoryOutlined,
   ClusterOutlined,
   SafetyCertificateOutlined,
@@ -70,6 +71,11 @@ const Layout: React.FC = () => {
       key: '/injection-files',
       icon: <DatabaseOutlined />,
       label: '注入文件',
+    },
+    {
+      key: '/audio-files',
+      icon: <AudioOutlined />,
+      label: '音频文件',
     },
     {
       key: '/task-history',

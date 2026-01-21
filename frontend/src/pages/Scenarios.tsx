@@ -1204,6 +1204,19 @@ const Scenarios: React.FC = () => {
 
                     {/* 其他高级选项 */}
                     <Form.Item
+                      name="rsa"
+                      label="Remote Send Address"
+                      tooltip="指定实际发送 SIP 消息的目标地址，用于 NAT 穿透或代理场景。格式：IP:端口 或 IP（默认5060）"
+                      rules={[
+                        {
+                          pattern: /^([a-zA-Z0-9.-]+)(:\d+)?$/,
+                          message: '格式错误！正确格式：IP:端口（如 172.16.17.101:5060）或 IP（如 172.16.17.101）',
+                        },
+                      ]}
+                    >
+                      <Input placeholder="172.16.17.101:5060 或 172.16.17.101" />
+                    </Form.Item>
+                    <Form.Item
                       name="autoAnswer"
                       label="Auto Answer (会话外消息自动应答)"
                       valuePropName="checked"

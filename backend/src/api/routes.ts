@@ -7,6 +7,7 @@ import { config } from '../config';
 import { query } from '../database';
 import { scenarioRepository } from '../database/scenario-repository';
 import { injectionFileService } from '../services/injection-file-service';
+import { audioFileService } from '../services/audio-file-service';
 import { taskHistoryRepository } from '../database/task-history-repository';
 import { configTemplateRepository } from '../database/config-template-repository';
 import { slaveManager } from '../services/slave-manager';
@@ -146,6 +147,7 @@ apiRouter.post('/sipp/start', async (req: Request, res: Response): Promise<void>
     traceRtt,
     traceScreen,
     // 其他高级选项
+    rsa,
     autoAnswer,
   } = req.body;
 
@@ -228,6 +230,7 @@ apiRouter.post('/sipp/start', async (req: Request, res: Response): Promise<void>
       traceRtt,
       traceScreen,
       // 其他高级选项
+      rsa,
       autoAnswer,
     };
 
@@ -2288,6 +2291,155 @@ apiRouter.delete('/tls-certs/:id', async (req: Request, res: Response) => {
       success: false,
       error: error.message,
     });
+  }
+});
+
+// ============================================
+// 音频文件管理 API
+// ============================================
+
+/**
+ * 配置音频文件上传 multer
+ */
+const audioUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 50 * 1024 * 1024, // 50MB 限制
+  },
+  fileFilter: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (ext === '.pcap' || ext === '.wav') {
+      cb(null, true);
+    } else {
+      cb(new Error('Only .pcap and .wav files are allowed'));
+    }
+  },
+});
+
+/**
+ * 列出所有音频文件
+ */
+apiRouter.get('/audio-files', async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const files = await audioFileService.listFiles();
+    res.json({
+      success: true,
+      files,
+    });
+  } catch (error: any) {
+    logger.error('Failed to list audio files:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * 获取音频文件详情
+ */
+apiRouter.get('/audio-files/:filename', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { filename } = req.params;
+    const file = await audioFileService.getFile(filename);
+
+    if (!file) {
+      res.status(404).json({
+        success: false,
+        error: 'Audio file not found',
+      });
+      return;
+    }
+
+    res.json({
+      success: true,
+      file,
+    });
+  } catch (error: any) {
+    logger.error('Failed to get audio file:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * 上传音频文件
+ */
+apiRouter.post('/audio-files', audioUpload.single('file'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const file = req.file;
+    const { description } = req.body;
+
+    if (!file) {
+      res.status(400).json({
+        success: false,
+        error: 'No file uploaded',
+      });
+      return;
+    }
+
+    const id = await audioFileService.saveFile({
+      filename: file.originalname,
+      description,
+      buffer: file.buffer,
+    });
+
+    res.json({
+      success: true,
+      message: 'Audio file uploaded successfully',
+      id,
+      filename: file.originalname,
+    });
+  } catch (error: any) {
+    logger.error('Failed to upload audio file:', error);
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * 下载音频文件
+ */
+apiRouter.get('/audio-files/:filename/download', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { filename } = req.params;
+
+    // 检查文件是否存在
+    const fileInfo = await audioFileService.getFile(filename);
+    if (!fileInfo) {
+      res.status(404).json({ success: false, error: 'Audio file not found' });
+      return;
+    }
+
+    const filePath = audioFileService.getFilePath(filename);
+    if (!fsSync.existsSync(filePath)) {
+      res.status(404).json({ success: false, error: 'Audio file not found on disk' });
+      return;
+    }
+
+    res.download(filePath, filename, (err) => {
+      if (err) {
+        logger.error('Failed to download audio file:', err);
+      } else {
+        logger.info('Audio file downloaded', { filename });
+      }
+    });
+  } catch (error: any) {
+    logger.error('Failed to download audio file:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * 删除音频文件
+ */
+apiRouter.delete('/audio-files/:filename', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { filename } = req.params;
+    await audioFileService.deleteFile(filename);
+
+    res.json({
+      success: true,
+      message: 'Audio file deleted successfully',
+    });
+  } catch (error: any) {
+    logger.error('Failed to delete audio file:', error);
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 

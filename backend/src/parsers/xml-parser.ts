@@ -3,6 +3,17 @@ import xml2js from 'xml2js';
 import { logger } from '../utils/logger';
 
 /**
+ * RTP 编码映射表（Payload Type → 编码名称/采样率）
+ */
+const CODEC_MAP: Record<number, { name: string; rate: number }> = {
+  0: { name: 'PCMU', rate: 8000 },
+  8: { name: 'PCMA', rate: 8000 },
+  18: { name: 'G729', rate: 8000 },
+  4: { name: 'G723', rate: 8000 },
+  9: { name: 'G722', rate: 8000 },
+};
+
+/**
  * 场景消息类型
  */
 export type MessageType = 'send' | 'recv' | 'pause' | 'nop' | 'sendcmd' | 'recvcmd' | 'action' | 'label';
@@ -401,12 +412,14 @@ export class XmlParser {
             // pause/resume 命令
             return `${spaces}<exec rtp_stream="${message.rtp_stream_command}"/>\n`;
           } else {
-            // 播放文件：file,loop,payload,rate
+            // 播放文件：file,loop,payload,CODEC/rate
             const file = message.rtp_stream_file || '';
             const loop = message.rtp_stream_loop || 1;
             const payload = message.rtp_stream_payload || 0;
             const rate = message.rtp_stream_rate || 8000;
-            return `${spaces}<exec rtp_stream="${this.escapeXml(file)},${loop},${payload},${rate}"/>\n`;
+            const codec = CODEC_MAP[payload];
+            const codecRate = codec ? `${codec.name}/${rate}` : `PCMU/${rate}`;
+            return `${spaces}<exec rtp_stream="${this.escapeXml(file)},${loop},${payload},${codecRate}"/>\n`;
           }
         }
 

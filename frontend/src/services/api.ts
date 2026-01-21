@@ -559,6 +559,56 @@ class ApiService {
   async deleteTLSCertificate(id: string): Promise<ApiResponse> {
     return this.client.delete(`/tls-certs/${id}`);
   }
+
+  // ============================================
+  // 音频文件管理
+  // ============================================
+
+  /**
+   * 获取音频文件列表
+   */
+  async listAudioFiles(): Promise<ApiResponse<{ files: any[] }>> {
+    return this.client.get('/audio-files');
+  }
+
+  /**
+   * 获取音频文件详情
+   */
+  async getAudioFile(filename: string): Promise<ApiResponse<{ file: any }>> {
+    return this.client.get(`/audio-files/${filename}`);
+  }
+
+  /**
+   * 上传音频文件
+   */
+  async uploadAudioFile(file: File, description?: string): Promise<ApiResponse<{ id: number; filename: string }>> {
+    const formData = new FormData();
+    formData.append('file', file);
+    if (description) {
+      formData.append('description', description);
+    }
+
+    return this.client.post('/audio-files', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+  }
+
+  /**
+   * 下载音频文件
+   */
+  downloadAudioFile(filename: string): void {
+    const url = `${this.client.defaults.baseURL}/audio-files/${filename}/download`;
+    window.open(url, '_blank');
+  }
+
+  /**
+   * 删除音频文件
+   */
+  async deleteAudioFile(filename: string): Promise<ApiResponse> {
+    return this.client.delete(`/audio-files/${filename}`);
+  }
 }
 
 // 单例导出

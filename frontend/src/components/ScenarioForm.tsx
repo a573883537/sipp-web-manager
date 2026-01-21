@@ -30,6 +30,7 @@ import {
   HolderOutlined,
 } from '@ant-design/icons';
 import type { Scenario, ScenarioMessage, MessageType } from '@/types';
+import { apiService } from '@/services/api';
 
 const { TextArea } = Input;
 const { Panel } = Collapse;
@@ -447,6 +448,25 @@ const ScenarioForm: React.FC<ScenarioFormProps> = ({
   const [messages, setMessages] = useState<ScenarioMessage[]>([]);
   const [loading, setLoading] = useState(false);
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const [audioFiles, setAudioFiles] = useState<Array<{ filename: string; file_type: string }>>([]);
+
+  // 加载音频文件列表
+  useEffect(() => {
+    const loadAudioFiles = async () => {
+      try {
+        const response = await apiService.listAudioFiles();
+        if (response.success && response.files) {
+          setAudioFiles(response.files);
+        }
+      } catch (error) {
+        console.error('Failed to load audio files:', error);
+      }
+    };
+
+    if (visible) {
+      loadAudioFiles();
+    }
+  }, [visible]);
 
   // 监听visible和initialData变化，正确初始化表单
   useEffect(() => {
@@ -1392,12 +1412,50 @@ const ScenarioForm: React.FC<ScenarioFormProps> = ({
                 {(msg.exec_subtype === 'play_pcap_audio' ||
                   msg.exec_subtype === 'play_pcap_video' ||
                   msg.exec_subtype === 'play_pcap_image') && (
-                  <Input
-                    placeholder="PCAP 文件路径，例如: pcap/g711a.pcap"
-                    value={msg.pcap_file}
-                    onChange={(e) => updateMessage(index, { pcap_file: e.target.value })}
-                    addonBefore="文件路径"
-                  />
+                  msg.exec_subtype === 'play_pcap_audio' ? (
+                    // PCAP 音频文件 - 提供下拉选择
+                    <Select
+                      showSearch
+                      allowClear
+                      placeholder="选择音频文件或手动输入路径"
+                      value={msg.pcap_file}
+                      onChange={(value) => updateMessage(index, { pcap_file: value })}
+                      notFoundContent="暂无音频文件，请先上传"
+                      dropdownRender={(menu) => (
+                        <>
+                          {menu}
+                          <Divider style={{ margin: '8px 0' }} />
+                          <div style={{ padding: '8px', color: '#999', fontSize: '12px' }}>
+                            提示：也可以手动输入文件路径
+                          </div>
+                        </>
+                      )}
+                      filterOption={(input, option) =>
+                        (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+                      }
+                      options={[
+                        // 先显示已上传的音频文件
+                        ...audioFiles
+                          .filter(f => f.file_type === 'PCAP')
+                          .map(f => ({
+                            label: `${f.filename} (已上传)`,
+                            value: f.filename,
+                          })),
+                        // 如果当前值不在列表中，也显示出来
+                        ...(msg.pcap_file && !audioFiles.some(f => f.filename === msg.pcap_file)
+                          ? [{ label: msg.pcap_file, value: msg.pcap_file }]
+                          : []),
+                      ]}
+                    />
+                  ) : (
+                    // PCAP 视频/图像 - 保持原来的输入框
+                    <Input
+                      placeholder="PCAP 文件路径，例如: pcap/video.pcap"
+                      value={msg.pcap_file}
+                      onChange={(e) => updateMessage(index, { pcap_file: e.target.value })}
+                      addonBefore="文件路径"
+                    />
+                  )
                 )}
 
                 {/* play_dtmf - DTMF 按键音 */}
@@ -1454,11 +1512,38 @@ const ScenarioForm: React.FC<ScenarioFormProps> = ({
                     ) : (
                       // 文件播放模式
                       <>
-                        <Input
-                          placeholder="音频文件路径，例如: audio.wav"
+                        <Select
+                          showSearch
+                          allowClear
+                          placeholder="选择音频文件或手动输入路径"
                           value={msg.rtp_stream_file}
-                          onChange={(e) => updateMessage(index, { rtp_stream_file: e.target.value })}
-                          addonBefore="文件"
+                          onChange={(value) => updateMessage(index, { rtp_stream_file: value })}
+                          notFoundContent="暂无音频文件，请先上传"
+                          dropdownRender={(menu) => (
+                            <>
+                              {menu}
+                              <Divider style={{ margin: '8px 0' }} />
+                              <div style={{ padding: '8px', color: '#999', fontSize: '12px' }}>
+                                提示：也可以手动输入文件路径（例如: audio.wav）
+                              </div>
+                            </>
+                          )}
+                          filterOption={(input, option) =>
+                            (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+                          }
+                          options={[
+                            // 先显示已上传的 WAV 音频文件
+                            ...audioFiles
+                              .filter(f => f.file_type === 'WAV')
+                              .map(f => ({
+                                label: `${f.filename} (已上传)`,
+                                value: f.filename,
+                              })),
+                            // 如果当前值不在列表中，也显示出来
+                            ...(msg.rtp_stream_file && !audioFiles.some(f => f.filename === msg.rtp_stream_file)
+                              ? [{ label: msg.rtp_stream_file, value: msg.rtp_stream_file }]
+                              : []),
+                          ]}
                         />
                         <Space wrap style={{ width: '100%' }}>
                           <InputNumber
@@ -1469,25 +1554,39 @@ const ScenarioForm: React.FC<ScenarioFormProps> = ({
                             style={{ width: 120 }}
                             addonBefore="循环"
                           />
-                          <InputNumber
-                            placeholder="Payload"
-                            value={msg.rtp_stream_payload || 0}
-                            onChange={(value) => updateMessage(index, { rtp_stream_payload: value || 0 })}
-                            min={0}
-                            max={127}
-                            style={{ width: 120 }}
-                            addonBefore="Payload"
-                          />
-                          <InputNumber
-                            placeholder="采样率"
-                            value={msg.rtp_stream_rate || 8000}
-                            onChange={(value) => updateMessage(index, { rtp_stream_rate: value || 8000 })}
-                            min={8000}
-                            step={1000}
-                            style={{ width: 140 }}
-                            addonBefore="采样率"
-                          />
+                          <Select
+                            placeholder="选择编解码器"
+                            value={
+                              msg.rtp_stream_payload !== undefined && msg.rtp_stream_rate
+                                ? `${msg.rtp_stream_payload}`
+                                : undefined
+                            }
+                            onChange={(value) => {
+                              const payloadType = parseInt(value);
+                              const codec = CODEC_MAP[payloadType];
+                              if (codec) {
+                                updateMessage(index, {
+                                  rtp_stream_payload: payloadType,
+                                  rtp_stream_rate: codec.rate,
+                                });
+                              }
+                            }}
+                            style={{ width: 200 }}
+                          >
+                            <Select.Option value="0">0 - PCMU/8000 (G.711 μ-law)</Select.Option>
+                            <Select.Option value="8">8 - PCMA/8000 (G.711 A-law)</Select.Option>
+                            <Select.Option value="18">18 - G729/8000</Select.Option>
+                            <Select.Option value="4">4 - G723/8000</Select.Option>
+                            <Select.Option value="9">9 - G722/8000</Select.Option>
+                          </Select>
                         </Space>
+                        <div style={{ marginTop: 8, padding: 8, background: '#f5f5f5', borderRadius: 4, fontSize: '12px' }}>
+                          <strong>格式说明：</strong>
+                          <br />
+                          实际 SIPp 命令格式: <code>rtp_stream="文件名,循环次数,Payload,编解码器/采样率"</code>
+                          <br />
+                          示例: <code>rtp_stream="audio.wav,1,0,PCMU/8000"</code>
+                        </div>
                       </>
                     )}
                   </Space>

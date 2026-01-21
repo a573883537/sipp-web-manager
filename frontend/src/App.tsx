@@ -5,6 +5,7 @@ import zhCN from 'antd/locale/zh_CN';
 import Layout from '@/components/Layout';
 import Scenarios from '@/pages/Scenarios';
 import InjectionFiles from '@/pages/InjectionFiles';
+import AudioFiles from '@/pages/AudioFiles';
 import TaskHistory from '@/pages/TaskHistory';
 import Machines from '@/pages/Machines';
 import TLSCertificates from '@/pages/TLSCertificates';
@@ -138,6 +139,7 @@ const App: React.FC = () => {
               <Route index element={<Navigate to="/scenarios" replace />} />
               <Route path="scenarios" element={<Scenarios />} />
               <Route path="injection-files" element={<InjectionFiles />} />
+              <Route path="audio-files" element={<AudioFiles />} />
               <Route path="task-history" element={<TaskHistory />} />
               <Route path="machines" element={<Machines />} />
               <Route path="tls-certificates" element={<TLSCertificates />} />
